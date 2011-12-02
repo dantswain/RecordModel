@@ -30,6 +30,8 @@ struct RecordDB
   leveldb::DB *db;
   RecordModelComparator *comparator;
 
+  VALUE modelklass;
+
   RecordDB()
   {
     db = NULL;
@@ -59,6 +61,15 @@ struct RecordDB
     }
   }
 };
+
+static void RecordDB__mark(void *ptr)
+{
+  RecordDB *mdb = (RecordDB*) ptr;
+  if (mdb)
+  {
+    rb_gc_mark(mdb->modelklass);
+  }
+}
 
 static void RecordDB__free(void *ptr)
 {
@@ -99,8 +110,7 @@ static VALUE RecordDB__open(VALUE klass, VALUE path, VALUE modelklass)
   }
 
   VALUE obj;
-  obj = Data_Wrap_Struct(klass, NULL, RecordDB__free, mdb);
-
+  obj = Data_Wrap_Struct(klass, RecordDB__mark, RecordDB__free, mdb);
   return obj;
 }
 
@@ -135,7 +145,6 @@ static VALUE RecordDB_put_or_sum(VALUE self, VALUE _mi)
   RecordModelInstance *mi;
   Data_Get_Struct(_mi, RecordModelInstance, mi);
   RecordModel *m = mi->model;
-
 
   const leveldb::Slice key((const char*)mi + sizeof(RecordModelInstance), m->keysize);
   std::string value;
@@ -200,6 +209,61 @@ static VALUE RecordDB_get(VALUE self, VALUE _mi)
   }
 }
 
+static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
+{
+  RecordDB &mdb = RecordDB__get(self);
+
+  RecordModelInstance *from;
+  Data_Get_Struct(_from, RecordModelInstance, from);
+
+  RecordModelInstance *to;
+  Data_Get_Struct(_to, RecordModelInstance, to);
+
+  RecordModelInstance *current;
+  Data_Get_Struct(_current, RecordModelInstance, current);
+
+  assert(from->model == to->model);
+  assert(from->model == current->model);
+
+  RecordModel &model = *(from->model);
+
+  model.copy_instance(current, from);
+
+  leveldb::Slice key(((const char*)current) + sizeof(RecordModelInstance), model.keysize);
+
+  leveldb::Iterator *it = mdb.db->NewIterator(leveldb::ReadOptions());
+  assert(it);
+
+  // position
+  it->Seek(key);
+  while (it->Valid())
+  {
+    // copy key into current
+    assert(it->key().size() == model.keysize);
+    memcpy(((char*)current) + sizeof(RecordModelInstance), it->key().data(), model.keysize);
+
+    assert(model.compare_keys(current, from) >= 0);
+
+    if (model.compare_keys(current, to) > 0)
+    {
+      break;
+    }
+
+    // copy data into current
+    assert(it->value().size() == model.size - model.keysize);
+    memcpy(((char*)current) + sizeof(RecordModelInstance) + model.keysize, it->value().data(), it->value().size());
+
+    // yield value
+    rb_yield(_current); // XXX 
+
+    it->Next();
+  }
+
+  delete it;
+
+  return Qnil;
+}
+
 extern "C"
 void Init_RecordModelLevelDBExt()
 {
@@ -209,4 +273,5 @@ void Init_RecordModelLevelDBExt()
   rb_define_method(cLevelDB, "put", (VALUE (*)(...)) RecordDB_put, 1);
   rb_define_method(cLevelDB, "put_or_sum", (VALUE (*)(...)) RecordDB_put_or_sum, 1);
   rb_define_method(cLevelDB, "get", (VALUE (*)(...)) RecordDB_get, 1);
+  rb_define_method(cLevelDB, "query", (VALUE (*)(...)) RecordDB_query, 3);
 }

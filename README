@@ -1,3 +1,15 @@
 RecordModel
 
 Copyright (c) 2011 by Michael Neumann (mneumann@ntecs.de)
+
+BUGS: 
+
+If you don't call RecordModelLevelDB#close at the end of your program the
+RecordModel class might get garbage collected before the database object is
+collected (there is no order on recycling when both objects are gone).  But
+when the database is closed it potentially needs to write back some data and as
+such needs information from the RecordModel. If it's already recycled this is
+very bad!  You can prevent that by doing:
+
+  at_exit { db.close }
+

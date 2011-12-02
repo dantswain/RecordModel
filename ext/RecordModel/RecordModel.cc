@@ -181,6 +181,21 @@ static VALUE RecordModelInstance_zero(VALUE self)
   return self;
 }
 
+static VALUE RecordModelInstance_dup(VALUE self)
+{
+  VALUE obj = RecordModelInstance__allocate(rb_obj_class(self));
+
+  RecordModelInstance *oldi;
+  RecordModelInstance *newi;
+
+  Data_Get_Struct(self, RecordModelInstance, oldi);
+  Data_Get_Struct(obj, RecordModelInstance, newi);
+
+  oldi->model->copy_instance(newi, oldi);
+
+  return obj;
+}
+
 static VALUE RecordModelInstance_sum_values(VALUE self, VALUE other)
 {
   RecordModelInstance *a;
@@ -201,6 +216,7 @@ static VALUE RecordModel_to_class(VALUE self)
   rb_define_method(klass, "[]", (VALUE (*)(...)) RecordModelInstance_get, 1);
   rb_define_method(klass, "[]=", (VALUE (*)(...)) RecordModelInstance_set, 2);
   rb_define_method(klass, "zero!", (VALUE (*)(...)) RecordModelInstance_zero, 0);
+  rb_define_method(klass, "dup", (VALUE (*)(...)) RecordModelInstance_dup, 0);
   rb_define_method(klass, "sum_values!", (VALUE (*)(...)) RecordModelInstance_sum_values, 1);
 
   return klass;
