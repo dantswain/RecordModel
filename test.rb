@@ -1,11 +1,13 @@
 $LOAD_PATH << "./ext/RecordModel"
 $LOAD_PATH << "./ext/LevelDB"
 $LOAD_PATH << "./ext/KyotoCabinet"
+$LOAD_PATH << "./ext/TokyoCabinet"
 $LOAD_PATH << "./src"
 
 require "RecordModel"
 require "RecordModelLevelDB"
 require "RecordModelKCDB"
+require "RecordModelTCDB"
 
 ConversionItem = RecordModel.define do |r|
   r.key :campaign_id, :uint64
@@ -17,14 +19,28 @@ ConversionItem = RecordModel.define do |r|
   r.val :conversion_type, :uint64
 end
 
-#db = RecordModelLevelDB.open("test.leveldb", ConversionItem)
-db = RecordModelKCDB.open("test.kcdb", ConversionItem)
-
 c = ConversionItem.new
 
+N = ARGV[0].to_i
+
+dbname = ARGV[2] || 'test'
+
+db = case ARGV[1]
+when 'leveldb'
+  RecordModelLevelDB.open("#{dbname}.leveldb", ConversionItem)
+when 'kyotocabinet'
+  RecordModelKCDB.open("#{dbname}.kcdb", ConversionItem)
+when 'tokyocabinet'
+  RecordModelTCDB.open("#{dbname}.tcdb", ConversionItem)
+else
+  raise
+end
+
+nh = N/100
+
 s = Time.now
-10_000_000.times do |i|
-  if i % 100_000 == 0
+N.times do |i|
+  if i % nh == 0
     e = Time.now
     puts "#{e-s}: #{i}"
     s = e

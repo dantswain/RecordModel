@@ -1,9 +1,10 @@
 #ifndef __RECORD_MODEL__HEADER__
 #define __RECORD_MODEL__HEADER__
 
-#include <stdint.h> // uint32_t...
-#include <stdlib.h> // malloc
+#include <stdint.h>  // uint32_t...
+#include <stdlib.h>  // malloc
 #include <strings.h> // bzero
+#include <assert.h>  // assert
 
 struct RecordModel;
 
