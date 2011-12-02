@@ -1,9 +1,11 @@
 $LOAD_PATH << "./ext/RecordModel"
 $LOAD_PATH << "./ext/LevelDB"
+$LOAD_PATH << "./ext/KyotoCabinet"
 $LOAD_PATH << "./src"
 
 require "RecordModel"
 require "RecordModelLevelDB"
+require "RecordModelKCDB"
 
 ConversionItem = RecordModel.define do |r|
   r.key :campaign_id, :uint64
@@ -15,7 +17,9 @@ ConversionItem = RecordModel.define do |r|
   r.val :conversion_type, :uint64
 end
 
-db = RecordModelLevelDB.open("test.leveldb", ConversionItem)
+#db = RecordModelLevelDB.open("test.leveldb", ConversionItem)
+db = RecordModelKCDB.open("test.kcdb", ConversionItem)
+
 c = ConversionItem.new
 
 s = Time.now
