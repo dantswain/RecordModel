@@ -13,10 +13,8 @@ ConversionItem = RecordModel.define do |r|
   r.key :campaign_id, :uint64
   r.key :timestamp, :uint64
 
-  r.val :uid_upper, :uint64
-  r.val :uid_lower, :uint64
-  r.val :company_id, :uint64
-  r.val :conversion_type, :uint64
+  r.val :v1, :double
+  r.val :v2, :uint32
 end
 
 c = ConversionItem.new

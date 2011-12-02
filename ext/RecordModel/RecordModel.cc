@@ -119,9 +119,19 @@ static VALUE RecordModelInstance_get(VALUE self, VALUE _desc)
 
   assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
 
+  const char *ptr = model.ptr_to_field(mi, desc);
+
   if (RecordModelType(desc) == RMT_UINT64)
   {
-    return ULONG2NUM( *((uint64_t*)((char*)mi + sizeof(RecordModelInstance) + RecordModelOffset(desc))) );
+    return ULONG2NUM( *((uint64_t*)ptr) );
+  }
+  else if (RecordModelType(desc) == RMT_UINT32)
+  {
+    return UINT2NUM( *((uint32_t*)ptr) );
+  }
+  else if (RecordModelType(desc) == RMT_DOUBLE)
+  {
+    return rb_float_new( *((double*)ptr) );
   }
   else
   {
@@ -138,11 +148,21 @@ static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
 
   uint32_t desc = NUM2UINT(_desc);
 
-  assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) < model.size);
+  assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
+
+  const char *ptr = model.ptr_to_field(mi, desc);
 
   if (RecordModelType(desc) == RMT_UINT64)
   {
-    *((uint64_t*)((char*)mi + sizeof(RecordModel*) + RecordModelOffset(desc))) = (uint64_t)NUM2ULONG(_val);
+    *((uint64_t*)ptr) = (uint64_t)NUM2ULONG(_val);
+  }
+  else if (RecordModelType(desc) == RMT_UINT32)
+  {
+    *((uint32_t*)ptr) = (uint32_t)NUM2UINT(_val);
+  }
+  else if (RecordModelType(desc) == RMT_DOUBLE)
+  {
+    *((double*)ptr) = (double)NUM2DBL(_val);
   }
   else
   {
@@ -157,10 +177,19 @@ static VALUE RecordModelInstance_zero(VALUE self)
 {
   RecordModelInstance *mi;
   Data_Get_Struct(self, RecordModelInstance, mi);
-  const RecordModel &model = *mi->model;
+  mi->model->zero_instance(mi);
+  return self;
+}
 
-  model.zero_instance(mi);
-  return Qnil;
+static VALUE RecordModelInstance_sum_values(VALUE self, VALUE other)
+{
+  RecordModelInstance *a;
+  RecordModelInstance *b;
+  Data_Get_Struct(self, RecordModelInstance, a);
+  Data_Get_Struct(other, RecordModelInstance, b);
+
+  a->model->sum_instance(a, b);
+  return self;
 }
 
 static VALUE RecordModel_to_class(VALUE self)
@@ -172,6 +201,7 @@ static VALUE RecordModel_to_class(VALUE self)
   rb_define_method(klass, "[]", (VALUE (*)(...)) RecordModelInstance_get, 1);
   rb_define_method(klass, "[]=", (VALUE (*)(...)) RecordModelInstance_set, 2);
   rb_define_method(klass, "zero!", (VALUE (*)(...)) RecordModelInstance_zero, 0);
+  rb_define_method(klass, "sum_values!", (VALUE (*)(...)) RecordModelInstance_sum_values, 1);
 
   return klass;
 }

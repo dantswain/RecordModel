@@ -15,7 +15,9 @@ struct RecordModelInstance
 };
 #pragma pack(pop)
 
+#define RMT_UINT32 0x0004
 #define RMT_UINT64 0x0008
+#define RMT_DOUBLE 0x0108
 
 #define RecordModelOffset(u) ((u) >> 16)
 #define RecordModelType(u) ((u) & 0xFFFF)
@@ -68,6 +70,42 @@ struct RecordModel
     }
   }
 
+  inline const char *ptr_to_field(const RecordModelInstance *i, uint32_t desc) const
+  {
+    return ((const char*)i) + sizeof(RecordModelInstance) + RecordModelOffset(desc);
+  }
+
+  /*
+   * Sums (adds) all numeric values: ra = ra + rb
+   * Does not touch key attributes!
+   */
+  void sum_instance(RecordModelInstance *ra, const RecordModelInstance *rb)
+  {
+    assert(ra->model == this && rb->model == this);
+
+    for (uint32_t *v = this->values; *v != 0; ++v)
+    {
+      uint32_t desc = *v;
+
+      if (RecordModelType(desc) == RMT_UINT64)
+      {
+        *((uint64_t*)ptr_to_field(ra, desc)) += *((const uint64_t*)ptr_to_field(rb, desc));
+      }
+      else if (RecordModelType(desc) == RMT_UINT32)
+      {
+        *((uint32_t*)ptr_to_field(ra, desc)) += *((const uint32_t*)ptr_to_field(rb, desc));
+      }
+      else if (RecordModelType(desc) == RMT_DOUBLE)
+      {
+        *((double*)ptr_to_field(ra, desc)) += *((const double*)ptr_to_field(rb, desc));
+      }
+      else
+      {
+        assert(false);
+      }
+    }
+  }
+
   int compare_keys(const char *akbuf, size_t aksiz, const char *bkbuf, size_t bksiz) const
   {
     assert(aksiz == bksiz && aksiz == this->keysize);
@@ -86,13 +124,26 @@ struct RecordModel
         uint64_t b = *((const uint64_t*)(bkbuf + RecordModelOffset(desc)));
         if (a != b) return (a < b ? -1 : 1);
       }
+      else if (RecordModelType(desc) == RMT_UINT32)
+      {
+        uint32_t a = *((const uint32_t*)(akbuf + RecordModelOffset(desc)));
+        uint32_t b = *((const uint32_t*)(bkbuf + RecordModelOffset(desc)));
+        if (a != b) return (a < b ? -1 : 1);
+      }
+      else if (RecordModelType(desc) == RMT_DOUBLE)
+      {
+        // XXX: Rarely used as keys!
+        double a = *((const double*)(akbuf + RecordModelOffset(desc)));
+        double b = *((const double*)(bkbuf + RecordModelOffset(desc)));
+        if (a != b) return (a < b ? -1 : 1);
+      }
       else
       {
         assert(false);
       }
     }
     return 0;
-  } 
+  }
 
 };
 
