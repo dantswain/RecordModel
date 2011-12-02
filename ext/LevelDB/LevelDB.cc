@@ -249,12 +249,18 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
       break;
     }
 
-    // copy data into current
-    assert(it->value().size() == model.size - model.keysize);
-    memcpy(((char*)current) + sizeof(RecordModelInstance) + model.keysize, it->value().data(), it->value().size());
-
-    // yield value
-    rb_yield(_current); // XXX 
+    if (model.keys_in_range(current, from, to))
+    {
+      // copy data into current
+      assert(it->value().size() == model.size - model.keysize);
+      memcpy(((char*)current) + sizeof(RecordModelInstance) + model.keysize, it->value().data(), it->value().size());
+      // yield value
+      rb_yield(_current); // XXX 
+    }
+    else
+    {
+      // TODO: seek to next record in range
+    }
 
     it->Next();
   }

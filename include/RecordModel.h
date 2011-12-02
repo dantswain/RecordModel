@@ -126,13 +126,13 @@ struct RecordModel
       }
     }
   }
-#if 0
+
   /*
    * Return true if all keys of "c" are within the ranges of the keys of "l" and "r".
    */
   bool keys_in_range(const RecordModelInstance *c, const RecordModelInstance *l, const RecordModelInstance *r)
   {
-    assert(r->model == this && ra->model == this && rb->model == this);
+    assert(c->model == this && l->model == this && r->model == this);
 
     for (uint32_t *k = this->keys; *k != 0; ++k)
     {
@@ -164,7 +164,6 @@ struct RecordModel
     }
     return true;
   }
-#endif
 
   int compare_keys(const RecordModelInstance *a, const RecordModelInstance *b)
   {
