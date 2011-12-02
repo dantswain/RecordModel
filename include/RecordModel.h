@@ -60,6 +60,14 @@ struct RecordModel
     return mi;
   }
 
+  void zero_instance(RecordModelInstance *mi)
+  {
+    if (mi)
+    {
+      bzero(((char*)mi) + sizeof(RecordModelInstance), this->size);
+    }
+  }
+
   int compare_keys(const char *akbuf, size_t aksiz, const char *bkbuf, size_t bksiz) const
   {
     assert(aksiz == bksiz && aksiz == this->keysize);

@@ -153,6 +153,16 @@ static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
   return Qnil;
 }
 
+static VALUE RecordModelInstance_zero(VALUE self)
+{
+  RecordModelInstance *mi;
+  Data_Get_Struct(self, RecordModelInstance, mi);
+  const RecordModel &model = *mi->model;
+
+  model.zero_instance(mi);
+  return Qnil;
+}
+
 static VALUE RecordModel_to_class(VALUE self)
 {
   VALUE klass = rb_class_new(cRecordModelInstance);
@@ -161,6 +171,7 @@ static VALUE RecordModel_to_class(VALUE self)
   rb_define_singleton_method(klass, "model", (VALUE (*)(...)) RecordModelInstance__model, 0);
   rb_define_method(klass, "[]", (VALUE (*)(...)) RecordModelInstance_get, 1);
   rb_define_method(klass, "[]=", (VALUE (*)(...)) RecordModelInstance_set, 2);
+  rb_define_method(klass, "zero!", (VALUE (*)(...)) RecordModelInstance_zero, 0);
 
   return klass;
 }
