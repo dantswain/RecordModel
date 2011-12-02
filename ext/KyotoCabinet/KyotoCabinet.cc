@@ -43,6 +43,11 @@ struct RecordDB
       comparator = NULL;
     }
   }
+
+  void close()
+  {
+    db->close();
+  }
 };
 
 static void RecordDB__free(void *ptr)
@@ -87,6 +92,13 @@ static VALUE RecordDB__open(VALUE klass, VALUE path, VALUE modelklass)
   return obj;
 }
 
+static VALUE RecordDB_close(VALUE self)
+{
+  RecordDB &mdb = RecordDB__get(self);
+  mdb.close();
+  return Qnil;
+}
+
 // Stores mi into the database
 static VALUE RecordDB_put(VALUE self, VALUE _mi)
 {
@@ -128,6 +140,7 @@ void Init_RecordModelKCDBExt()
 {
   VALUE cKCDB = rb_define_class("RecordModelKCDB", rb_cObject);
   rb_define_singleton_method(cKCDB, "open", (VALUE (*)(...)) RecordDB__open, 2);
+  rb_define_method(cKCDB, "close", (VALUE (*)(...)) RecordDB_close, 0);
   rb_define_method(cKCDB, "put", (VALUE (*)(...)) RecordDB_put, 1);
   rb_define_method(cKCDB, "get", (VALUE (*)(...)) RecordDB_get, 1);
 }
