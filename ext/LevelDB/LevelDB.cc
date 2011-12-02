@@ -129,6 +129,51 @@ static VALUE RecordDB_put(VALUE self, VALUE _mi)
     return Qfalse;
 }
 
+static VALUE RecordDB_put_or_sum(VALUE self, VALUE _mi)
+{
+  RecordDB &mdb = RecordDB__get(self);
+  RecordModelInstance *mi;
+  Data_Get_Struct(_mi, RecordModelInstance, mi);
+  RecordModel *m = mi->model;
+
+
+  const leveldb::Slice key((const char*)mi + sizeof(RecordModelInstance), m->keysize);
+  std::string value;
+
+  leveldb::Status s;
+
+  s = mdb.db->Get(leveldb::ReadOptions(), key, &value);  
+
+  if (s.ok())
+  {
+    // we have an existing key -> accum record 
+    assert(value.size() == (m->size - m->keysize));
+    RecordModelInstance *newmi = m->create_instance();
+    assert(newmi);
+    memcpy((char*)newmi + sizeof(RecordModelInstance) + m->keysize, value.data(), value.size() /*m->size - m->keysize*/);
+    m->sum_instance(newmi, mi);
+    const leveldb::Slice value((const char*)newmi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
+    s = mdb.db->Put(leveldb::WriteOptions(), key, value);
+    free(newmi);
+  }
+  else
+  {
+    // key does not exist
+    const leveldb::Slice value((const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
+    s = mdb.db->Put(leveldb::WriteOptions(), key, value);
+  }
+
+
+  if (s.ok())
+  {
+    return Qtrue;
+  }
+  else
+  {
+    return Qfalse;
+  }
+}
+
 /*
  * Retrieves into _mi
  */
@@ -162,5 +207,6 @@ void Init_RecordModelLevelDBExt()
   rb_define_singleton_method(cLevelDB, "open", (VALUE (*)(...)) RecordDB__open, 2);
   rb_define_method(cLevelDB, "close", (VALUE (*)(...)) RecordDB_close, 0);
   rb_define_method(cLevelDB, "put", (VALUE (*)(...)) RecordDB_put, 1);
+  rb_define_method(cLevelDB, "put_or_sum", (VALUE (*)(...)) RecordDB_put_or_sum, 1);
   rb_define_method(cLevelDB, "get", (VALUE (*)(...)) RecordDB_get, 1);
 }
