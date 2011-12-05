@@ -36,6 +36,7 @@ struct RecordDB
   {
     db = NULL;
     comparator = NULL;
+    modelklass = Qnil;
   }
 
   ~RecordDB()
@@ -97,6 +98,7 @@ static VALUE RecordDB__open(VALUE klass, VALUE path, VALUE modelklass)
   // GC model from ModelDB
   RecordDB *mdb = new RecordDB;
   mdb->comparator = new RecordModelComparator(m);
+  mdb->modelklass = modelklass;
 
   leveldb::Options options;
   options.create_if_missing = true;
