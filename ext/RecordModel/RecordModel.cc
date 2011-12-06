@@ -129,6 +129,14 @@ static VALUE RecordModelInstance_get(VALUE self, VALUE _desc)
   {
     return UINT2NUM( *((uint32_t*)ptr) );
   }
+  else if (RecordModelType(desc) == RMT_UINT16)
+  {
+    return UINT2NUM( *((uint16_t*)ptr) );
+  }
+  else if (RecordModelType(desc) == RMT_UINT8)
+  {
+    return UINT2NUM( *((uint8_t*)ptr) );
+  }
   else if (RecordModelType(desc) == RMT_DOUBLE)
   {
     return rb_float_new( *((double*)ptr) );
@@ -159,6 +167,16 @@ static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
   else if (RecordModelType(desc) == RMT_UINT32)
   {
     *((uint32_t*)ptr) = (uint32_t)NUM2UINT(_val);
+  }
+  else if (RecordModelType(desc) == RMT_UINT16)
+  {
+    // XXX: Range!
+    *((uint16_t*)ptr) = (uint16_t)NUM2UINT(_val);
+  }
+  else if (RecordModelType(desc) == RMT_UINT8)
+  {
+    // XXX: Range!
+    *((uint8_t*)ptr) = (uint8_t)NUM2UINT(_val);
   }
   else if (RecordModelType(desc) == RMT_DOUBLE)
   {

@@ -16,9 +16,11 @@ struct RecordModelInstance
 };
 #pragma pack(pop)
 
-#define RMT_UINT32 0x0004
-#define RMT_UINT64 0x0008
-#define RMT_DOUBLE 0x0108
+#define RMT_UINT8   0x0001
+#define RMT_UINT16  0x0002
+#define RMT_UINT32  0x0004
+#define RMT_UINT64  0x0008
+#define RMT_DOUBLE  0x0108
 
 #define RecordModelOffset(u) ((u) >> 16)
 #define RecordModelType(u) ((u) & 0xFFFF)
@@ -120,6 +122,14 @@ struct RecordModel
       {
         *((double*)ptr_to_field(ra, desc)) += *((const double*)ptr_to_field(rb, desc));
       }
+      else if (RecordModelType(desc) == RMT_UINT16)
+      {
+        *((uint16_t*)ptr_to_field(ra, desc)) += *((const uint16_t*)ptr_to_field(rb, desc));
+      }
+      else if (RecordModelType(desc) == RMT_UINT8)
+      {
+        *((uint8_t*)ptr_to_field(ra, desc)) += *((const uint8_t*)ptr_to_field(rb, desc));
+      }
       else
       {
         assert(false);
@@ -146,10 +156,36 @@ struct RecordModel
       }
       else if (RecordModelType(desc) == RMT_UINT32)
       {
-        uint64_t cv = *((uint32_t*)ptr_to_field(c, desc));
+        uint32_t cv = *((uint32_t*)ptr_to_field(c, desc));
         if (cv < *((uint32_t*)ptr_to_field(l, desc))) return false;
         if (cv > *((uint32_t*)ptr_to_field(r, desc))) return false;
       }
+      else if (RecordModelType(desc) == RMT_UINT16)
+      {
+        uint16_t cv = *((uint16_t*)ptr_to_field(c, desc));
+        if (cv < *((uint16_t*)ptr_to_field(l, desc))) return false;
+        if (cv > *((uint16_t*)ptr_to_field(r, desc))) return false;
+      }
+      else if (RecordModelType(desc) == RMT_UINT8)
+      {
+        uint8_t cv = *((uint8_t*)ptr_to_field(c, desc));
+        if (cv < *((uint8_t*)ptr_to_field(l, desc))) return false;
+        if (cv > *((uint8_t*)ptr_to_field(r, desc))) return false;
+      }
+#if 0
+      else if (RecordModelType(desc) == RMT_UINT128)
+      {
+        const uint64_t *cvp = (const uint64_t*)ptr_to_field(c, desc);
+        const uint64_t *lp = (const uint64_t*)ptr_to_field(l, desc);
+        const uint64_t *rp = (const uint64_t*)ptr_to_field(r, desc);
+
+        // XXX: check conditions!
+        if (cvp[0] < lp[0]) return false;
+        if (cvp[0] == lp[0] && cvp[1] < lp[1]) return false;
+        if (cvp[0] > rp[0]) return false;
+        if (cvp[0] == rp[0] && cvp[1] > rp[1]) return false;
+      }
+#endif
       else if (RecordModelType(desc) == RMT_DOUBLE)
       {
         // XXX: Rarely used as keys!
@@ -194,6 +230,35 @@ struct RecordModel
       {
         uint32_t a = *((const uint32_t*)(akbuf + RecordModelOffset(desc)));
         uint32_t b = *((const uint32_t*)(bkbuf + RecordModelOffset(desc)));
+        if (a != b) return (a < b ? -1 : 1);
+      }
+      else if (RecordModelType(desc) == RMT_UINT16)
+      {
+        uint16_t a = *((const uint16_t*)(akbuf + RecordModelOffset(desc)));
+        uint16_t b = *((const uint16_t*)(bkbuf + RecordModelOffset(desc)));
+        if (a != b) return (a < b ? -1 : 1);
+      }
+#if 0
+      else if (RecordModelType(desc) == RMT_UINT128)
+      {
+        const uint64_t *a = (const uint64_t*)(akbuf + RecordModelOffset(desc));
+        const uint64_t *b = (const uint64_t*)(bkbuf + RecordModelOffset(desc));
+
+        if (a[0] != b[0] || a[1] != b[1]) // a != b
+        {
+          if (a[0] < b[0])
+            return -1;
+          else if (a[0] == b[0] && a[1] < b[1])
+            return -1;
+          else
+            return 1;
+        }
+      }
+#endif
+      else if (RecordModelType(desc) == RMT_UINT8)
+      {
+        uint8_t a = *((const uint8_t*)(akbuf + RecordModelOffset(desc)));
+        uint8_t b = *((const uint8_t*)(bkbuf + RecordModelOffset(desc)));
         if (a != b) return (a < b ? -1 : 1);
       }
       else if (RecordModelType(desc) == RMT_DOUBLE)
