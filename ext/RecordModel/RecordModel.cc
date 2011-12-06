@@ -196,17 +196,21 @@ static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
   }
   else if (RecordModelType(desc) == RMT_UINT32)
   {
-    *((uint32_t*)ptr) = (uint32_t)NUM2UINT(_val);
+    uint64_t v = NUM2UINT(_val);
+    if (v > 0xFFFFFFFF) rb_raise(rb_eArgError, "Integer out of uint32 range: %d", v);
+    *((uint32_t*)ptr) = (uint32_t)v;
   }
   else if (RecordModelType(desc) == RMT_UINT16)
   {
-    // XXX: Range!
-    *((uint16_t*)ptr) = (uint16_t)NUM2UINT(_val);
+    uint64_t v = NUM2UINT(_val);
+    if (v > 0xFFFF) rb_raise(rb_eArgError, "Integer out of uint16 range: %d", v);
+    *((uint16_t*)ptr) = (uint16_t)v;
   }
   else if (RecordModelType(desc) == RMT_UINT8)
   {
-    // XXX: Range!
-    *((uint8_t*)ptr) = (uint8_t)NUM2UINT(_val);
+    uint64_t v = NUM2UINT(_val);
+    if (v > 0xFF) rb_raise(rb_eArgError, "Integer out of uint8 range: %d", v);
+    *((uint8_t*)ptr) = (uint8_t)v;
   }
   else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
   {
