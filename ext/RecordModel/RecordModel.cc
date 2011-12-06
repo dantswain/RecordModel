@@ -1,5 +1,6 @@
 #include "../../include/RecordModel.h"
 #include <assert.h> // assert
+#include <strings.h> // bzero
 #include "ruby.h"
 
 /*
@@ -165,8 +166,8 @@ static VALUE RecordModelInstance_get(VALUE self, VALUE _desc)
     cbuf[2] = 0;
     for (int i = 0; i < RecordModelTypeSize(desc); ++i)
     {
-      cbuf[0] = to_hex_digit((*ptr2) >> 4);
-      cbuf[1] = to_hex_digit((*ptr2) & 0x0F);
+      cbuf[0] = to_hex_digit((ptr2[i]) >> 4);
+      cbuf[1] = to_hex_digit((ptr2[i]) & 0x0F);
       rb_str_buf_cat_ascii(strbuf, cbuf);
     }
     return strbuf;
@@ -197,46 +198,44 @@ static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
   else if (RecordModelType(desc) == RMT_UINT32)
   {
     uint64_t v = NUM2UINT(_val);
-    if (v > 0xFFFFFFFF) rb_raise(rb_eArgError, "Integer out of uint32 range: %d", v);
+    if (v > 0xFFFFFFFF) rb_raise(rb_eArgError, "Integer out of uint32 range: %ld", v);
     *((uint32_t*)ptr) = (uint32_t)v;
   }
   else if (RecordModelType(desc) == RMT_UINT16)
   {
     uint64_t v = NUM2UINT(_val);
-    if (v > 0xFFFF) rb_raise(rb_eArgError, "Integer out of uint16 range: %d", v);
+    if (v > 0xFFFF) rb_raise(rb_eArgError, "Integer out of uint16 range: %ld", v);
     *((uint16_t*)ptr) = (uint16_t)v;
   }
   else if (RecordModelType(desc) == RMT_UINT8)
   {
     uint64_t v = NUM2UINT(_val);
-    if (v > 0xFF) rb_raise(rb_eArgError, "Integer out of uint8 range: %d", v);
+    if (v > 0xFF) rb_raise(rb_eArgError, "Integer out of uint8 range: %ld", v);
     *((uint8_t*)ptr) = (uint8_t)v;
   }
   else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
   {
+    const int max_sz = 2*RecordModelTypeSize(desc);
+
     Check_Type(_val, T_STRING);
-    if (RSTRING_LEN(_val) != 2*RecordModelTypeSize(desc))
+    if (RSTRING_LEN(_val) > max_sz)
     {
-      rb_raise(rb_eArgError, "Invalid string size. Was: %d, Expected: %d",
-        (int)RSTRING_LEN(_val), (int)2*RecordModelTypeSize(desc));
+      rb_raise(rb_eArgError, "Invalid string size. Was: %d, Max: %d", (int)RSTRING_LEN(_val), max_sz);
     }
     const char *str = RSTRING_PTR(_val);
     uint8_t *v = (uint8_t*) ptr;
 
-    int digit = -1;
-    for (int i = 0; i < RecordModelTypeSize(desc); ++i)
+    bzero(v, RecordModelTypeSize(desc));
+
+    const int i_off = max_sz - RSTRING_LEN(_val);
+
+    for (int i = 0; i < RSTRING_LEN(_val); ++i)
     {
-      digit = from_hex_digit(str[i*2]);
+      int digit = from_hex_digit(str[i]);
       if (digit < 0)
-        rb_raise(rb_eArgError, "Invalid hex digit at %s", &str[i*2]);
+        rb_raise(rb_eArgError, "Invalid hex digit at %s", &str[i]);
 
-      v[i] = digit;
-
-      digit = from_hex_digit(str[i*2+1]);
-      if (digit < 0)
-        rb_raise(rb_eArgError, "Invalid hex digit at %s", &str[i*2+1]);
-
-      v[i] = (v[i] << 4) | digit;
+      v[(i+i_off)/2] = (v[(i+i_off)/2] << 4) | (uint8_t)digit;
     }
   }
   else if (RecordModelType(desc) == RMT_DOUBLE)
