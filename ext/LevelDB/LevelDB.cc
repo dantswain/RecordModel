@@ -186,6 +186,45 @@ static VALUE RecordDB_put_or_sum(VALUE self, VALUE _mi)
 }
 
 /*
+ * Add a Record to the database. If a record with the same key already exists, return nil
+ * (or false in case we could not put the record into the database).
+ */ 
+static VALUE RecordDB_add(VALUE self, VALUE _mi)
+{
+  RecordDB &mdb = RecordDB__get(self);
+  RecordModelInstance *mi;
+  Data_Get_Struct(_mi, RecordModelInstance, mi);
+  RecordModel *m = mi->model;
+
+  const leveldb::Slice key((const char*)mi + sizeof(RecordModelInstance), m->keysize);
+  std::string v;
+
+  leveldb::Status s;
+
+  s = mdb.db->Get(leveldb::ReadOptions(), key, &v);
+
+  if (s.ok())
+  {
+    assert(v.size() == (m->size - m->keysize));
+
+    return Qnil;
+  }
+
+  // key does not exist
+  const leveldb::Slice value((const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
+  s = mdb.db->Put(leveldb::WriteOptions(), key, value);
+  if (s.ok())
+  {
+    return Qtrue;
+  }
+  else
+  {
+    return Qfalse;
+  }
+}
+
+
+/*
  * Retrieves into _mi
  */
 static VALUE RecordDB_get(VALUE self, VALUE _mi)
@@ -279,6 +318,7 @@ void Init_RecordModelLevelDBExt()
   rb_define_singleton_method(cLevelDB, "open", (VALUE (*)(...)) RecordDB__open, 2);
   rb_define_method(cLevelDB, "close", (VALUE (*)(...)) RecordDB_close, 0);
   rb_define_method(cLevelDB, "put", (VALUE (*)(...)) RecordDB_put, 1);
+  rb_define_method(cLevelDB, "add", (VALUE (*)(...)) RecordDB_add, 1);
   rb_define_method(cLevelDB, "put_or_sum", (VALUE (*)(...)) RecordDB_put_or_sum, 1);
   rb_define_method(cLevelDB, "get", (VALUE (*)(...)) RecordDB_get, 1);
   rb_define_method(cLevelDB, "query", (VALUE (*)(...)) RecordDB_query, 3);
