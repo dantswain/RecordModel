@@ -11,16 +11,16 @@ class RecordModel
       yield self
     end
 
-    def key(id, type)
+    def key(id, type, sz=nil)
       raise if @ids.has_key?(id)
       @ids[id] = true
-      @keys << [id, type]
+      @keys << [id, type, sz]
     end
 
-    def val(id, type)
+    def val(id, type, sz=nil)
       raise if @ids.has_key?(id)
       @ids[id] = true
-      @values << [id, type]
+      @values << [id, type, sz]
     end
 
     alias value val
@@ -35,46 +35,48 @@ class RecordModel
     defs_x2 = []
 
     keys = []
-    b.keys.each do |id, type| 
+    b.keys.each do |id, type, sz|
       info[id] = :key
       if type == :uint64_x2
-        desc = (offset << 16) | TYPES[:uint64]
-        offset += TYPES[:uint64] & 0xFF
+        raise if sz
+        desc = def_descr(offset, :uint64, nil)
+        offset += type_size(:uint64, nil)
         keys << desc
         defs[:"#{id}__0"] = desc
 
-        desc = (offset << 16) | TYPES[:uint64]
-        offset += TYPES[:uint64] & 0xFF
+        desc = def_descr(offset, :uint64, nil)
+        offset += type_size(:uint64, nil)
         keys << desc
         defs[:"#{id}__1"] = desc
 
         defs_x2 << id
       else
-        desc = (offset << 16) | TYPES[type]
-        offset += TYPES[type] & 0xFF
+        desc = def_descr(offset, type, sz)
+        offset += type_size(type, sz)
         keys << desc
         defs[id] = desc
       end
     end
 
     values = []
-    b.values.each do |id, type| 
+    b.values.each do |id, type, sz|
       info[id] = :value
-      if type == :uint64_x2
-        desc = (offset << 16) | TYPES[:uint64]
-        offset += TYPES[:uint64] & 0xFF
+      if type == :uint64_x2 
+        raise if sz
+        desc = def_descr(offset, :uint64, nil)
+        offset += type_size(:uint64, nil)
         values << desc
         defs[:"#{id}__0"] = desc
 
-        desc = (offset << 16) | TYPES[:uint64]
-        offset += TYPES[:uint64] & 0xFF
+        desc = def_descr(offset, :uint64, nil)
+        offset += type_size(:uint64, nil)
         values << desc
         defs[:"#{id}__1"] = desc
 
         defs_x2 << id
       else
-        desc = (offset << 16) | TYPES[type]
-        offset += TYPES[type] & 0xFF
+        desc = def_descr(offset, type, sz)
+        offset += type_size(type, sz)
         values << desc
         defs[id] = desc
       end
@@ -104,12 +106,27 @@ class RecordModel
     return klass
   end
 
+  def self.def_descr(offset, type, sz=nil)
+    (offset << 16) | TYPES[type] | type_size(type, sz)
+  end
+
+  def self.type_size(type, sz)
+    if TYPES[type] & 0xFF == 0
+      raise if sz.nil?
+      return sz
+    else
+      raise if sz and TYPES[type] & 0xFF != sz
+      return TYPES[type] & 0xFF
+    end
+  end
+
   TYPES = {
     :uint64 => 0x0008,
     :uint32 => 0x0004,
     :uint16 => 0x0002,
     :uint8 => 0x0001,
-    :double => 0x0108
+    :double => 0x0108,
+    :hexstr => 0x0200
   }
 
 end

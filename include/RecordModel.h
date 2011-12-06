@@ -21,9 +21,11 @@ struct RecordModelInstance
 #define RMT_UINT32  0x0004
 #define RMT_UINT64  0x0008
 #define RMT_DOUBLE  0x0108
+#define RMT_HEXSTR  0x0200
 
 #define RecordModelOffset(u) ((u) >> 16)
 #define RecordModelType(u) ((u) & 0xFFFF)
+#define RecordModelTypeNoSize(u) ((u) & 0xFF00)
 #define RecordModelTypeSize(u) ((u) & 0xFF)
 
 struct RecordModel
@@ -101,6 +103,8 @@ struct RecordModel
   /*
    * Sums (adds) all numeric values: ra = ra + rb
    * Does not touch key attributes!
+   *
+   * XXX: NOT supported for RMT_HEXSTR.
    */
   void sum_instance(RecordModelInstance *ra, const RecordModelInstance *rb)
   {
@@ -172,6 +176,23 @@ struct RecordModel
         if (cv < *((uint8_t*)ptr_to_field(l, desc))) return false;
         if (cv > *((uint8_t*)ptr_to_field(r, desc))) return false;
       }
+      else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
+      {
+        const uint8_t *cp = (const uint8_t*)ptr_to_field(c, desc);
+        const uint8_t *lp = (const uint8_t*)ptr_to_field(l, desc);
+        const uint8_t *rp = (const uint8_t*)ptr_to_field(r, desc);
+        // XXX: Check correctness
+        for (int i=0; i < RecordModelTypeSize(desc); ++i)
+        {
+          if (cp[i] < lp[i]) return false;
+          if (cp[i] > lp[i]) break;
+        }
+        for (int i=0; i < RecordModelTypeSize(desc); ++i)
+        {
+          if (cp[i] > rp[i]) return false;
+          if (cp[i] < rp[i]) break;
+        }
+      }
 #if 0
       else if (RecordModelType(desc) == RMT_UINT128)
       {
@@ -237,6 +258,19 @@ struct RecordModel
         uint16_t a = *((const uint16_t*)(akbuf + RecordModelOffset(desc)));
         uint16_t b = *((const uint16_t*)(bkbuf + RecordModelOffset(desc)));
         if (a != b) return (a < b ? -1 : 1);
+      }
+      else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
+      {
+        const uint8_t *a = (const uint8_t*)(akbuf + RecordModelOffset(desc));
+        const uint8_t *b = (const uint8_t*)(bkbuf + RecordModelOffset(desc));
+ 
+        // XXX: Check correctness
+        for (int i=0; i < RecordModelTypeSize(desc); ++i)
+        {
+          if (a[i] < b[i]) return -1;
+          if (a[i] > b[i]) return 1;
+        }
+        return 0;
       }
 #if 0
       else if (RecordModelType(desc) == RMT_UINT128)

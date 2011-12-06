@@ -109,6 +109,21 @@ static VALUE RecordModelInstance__model(VALUE klass)
   return rb_cvar_get(klass, rb_intern("@@__model"));
 }
 
+static char to_hex_digit(uint8_t v)
+{
+  if (/*v >= 0 && */v <= 9) return '0' + v;
+  if (v >= 10 && v <= 15) return 'A' + v - 10;
+  return '#';
+}
+
+static int from_hex_digit(char c)
+{
+  if (c >= '0' && c <= '9') return c-'0';
+  if (c >= 'a' && c <= 'f') return c-'a'+10;
+  if (c >= 'A' && c <= 'F') return c-'A'+10;
+  return -1;
+}
+
 static VALUE RecordModelInstance_get(VALUE self, VALUE _desc)
 {
   RecordModelInstance *mi;
@@ -140,6 +155,21 @@ static VALUE RecordModelInstance_get(VALUE self, VALUE _desc)
   else if (RecordModelType(desc) == RMT_DOUBLE)
   {
     return rb_float_new( *((double*)ptr) );
+  }
+  else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
+  {
+    const uint8_t *ptr2 = (const uint8_t*)ptr;
+
+    VALUE strbuf = rb_str_buf_new(2*RecordModelTypeSize(desc));
+    char cbuf[3];
+    cbuf[2] = 0;
+    for (int i = 0; i < RecordModelTypeSize(desc); ++i)
+    {
+      cbuf[0] = to_hex_digit((*ptr2) >> 4);
+      cbuf[1] = to_hex_digit((*ptr2) & 0x0F);
+      rb_str_buf_cat_ascii(strbuf, cbuf);
+    }
+    return strbuf;
   }
   else
   {
@@ -178,16 +208,41 @@ static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
     // XXX: Range!
     *((uint8_t*)ptr) = (uint8_t)NUM2UINT(_val);
   }
+  else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
+  {
+    Check_Type(_val, T_STRING);
+    if (RSTRING_LEN(_val) != 2*RecordModelTypeSize(desc))
+    {
+      rb_raise(rb_eArgError, "Invalid string size. Was: %d, Expected: %d",
+        (int)RSTRING_LEN(_val), (int)2*RecordModelTypeSize(desc));
+    }
+    const char *str = RSTRING_PTR(_val);
+    uint8_t *v = (uint8_t*) ptr;
+
+    int digit = -1;
+    for (int i = 0; i < RecordModelTypeSize(desc); ++i)
+    {
+      digit = from_hex_digit(str[i*2]);
+      if (digit < 0)
+        rb_raise(rb_eArgError, "Invalid hex digit at %s", &str[i*2]);
+
+      v[i] = digit;
+
+      digit = from_hex_digit(str[i*2+1]);
+      if (digit < 0)
+        rb_raise(rb_eArgError, "Invalid hex digit at %s", &str[i*2+1]);
+
+      v[i] = (v[i] << 4) | digit;
+    }
+  }
   else if (RecordModelType(desc) == RMT_DOUBLE)
   {
     *((double*)ptr) = (double)NUM2DBL(_val);
   }
   else
   {
-    // XXX: raise
-    return Qnil;
+    rb_raise(rb_eArgError, "Wrong description");
   }
-
   return Qnil;
 }
 
