@@ -242,19 +242,21 @@ double conv_str_to_double(const char *s, const char *e)
 
 uint64_t conv_str_to_uint(const char *s, const char *e)
 {
-  char c = *e;
-  *((char*)e) = '\0';
-  uint64_t v = atol(s);
-  *((char*)e) = c;
+  uint64_t v = 0;
+  for (; s != e; ++s)
+  {
+    char c = *s;
+    if (c >= '0' && c <= '9')
+    {
+      v *= 10;
+      v += (c-'0');
+    }
+    else
+    {
+      return 0; // invalid
+    }
+  }
   return v;
-
-#if 0
-  char buf[32];
-  int sz = (int)(e-s);
-  memcpy(buf, s, sz); 
-  buf[sz] = '\0';
-  return strtol(buf, NULL, 10);
-#endif
 }
 
 
@@ -274,12 +276,20 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
   for (i=0; i < RARRAY_LEN(_desc_arr); ++i)
   {
     VALUE e = RARRAY_PTR(_desc_arr)[i];
-    Check_Type(e, T_ARRAY);
-    assert(RARRAY_LEN(e) > 0);
 
-    bool has_additional = RARRAY_LEN(e) > 1 ? true : false;
+    uint32_t desc;
+    bool has_additional;
 
-    uint32_t desc = NUM2UINT(RARRAY_PTR(e)[0]);
+    if (TYPE(e) == T_ARRAY)
+    {
+      has_additional = true;
+      desc = NUM2UINT(RARRAY_PTR(e)[0]);
+    }
+    else
+    {
+      has_additional = false;
+      desc = NUM2UINT(e);
+    }
 
     assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
     const char *ptr = model.ptr_to_field(mi, desc);
