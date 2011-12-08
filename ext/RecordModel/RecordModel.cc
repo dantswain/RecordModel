@@ -181,26 +181,24 @@ static VALUE RecordModelInstance_get(VALUE self, VALUE _desc)
   }
 }
 
-/*
- * XXX: check buf length
- */
-const char *parse_token(const char *src, char *buf, int &buflen)
+const char *parse_token(const char **src)
 {
-  buflen = 0;
+  const char *ptr = *src;
 
   // at first skip whitespaces
-  while (isspace(*src)) ++src;
+  while (isspace(*ptr)) ++ptr;
+
+  const char *beg = ptr;
 
   // copy the token into the buffer
-  while (*src != '\0' && !isspace(*src))
+  while (*ptr != '\0' && !isspace(*ptr))
   {
-    buf[buflen++] = *src;
-    ++src;
+    ++ptr;
   }
 
-  buf[buflen] = '\0';
+  *src = ptr; // endptr
 
-  return src;
+  return beg;
 }
 
 void parse_hexstring(uint8_t *v, uint32_t desc, int strlen, const char *str)
@@ -226,6 +224,39 @@ void parse_hexstring(uint8_t *v, uint32_t desc, int strlen, const char *str)
   }
 }
 
+double conv_str_to_double(const char *s, const char *e)
+{
+  char c = *e;
+  *((char*)e) = '\0';
+  double v = atof(s);
+  *((char*)e) = c;
+  return v;
+#if 0
+  char buf[32];
+  int sz = (int)(e-s);
+  memcpy(buf, s, sz); 
+  buf[sz] = '\0';
+  return atof(buf);
+#endif
+}
+
+uint64_t conv_str_to_uint(const char *s, const char *e)
+{
+  char c = *e;
+  *((char*)e) = '\0';
+  uint64_t v = atol(s);
+  *((char*)e) = c;
+  return v;
+
+#if 0
+  char buf[32];
+  int sz = (int)(e-s);
+  memcpy(buf, s, sz); 
+  buf[sz] = '\0';
+  return strtol(buf, NULL, 10);
+#endif
+}
+
 
 static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc_arr)
 {
@@ -236,9 +267,8 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
   Check_Type(_line, T_STRING);
   Check_Type(_desc_arr, T_ARRAY);
 
-  char buf[1024]; // XXX
-  const char *tok = RSTRING_PTR(_line); 
-  int buflen;
+  const char *next = RSTRING_PTR(_line); 
+  const char *tok = NULL;
 
   int i;
   for (i=0; i < RARRAY_LEN(_desc_arr); ++i)
@@ -254,8 +284,8 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
     assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
     const char *ptr = model.ptr_to_field(mi, desc);
 
-    tok = parse_token(tok, buf, buflen);
-    if (buflen == 0)
+    tok = parse_token(&next);
+    if (tok == next)
       return UINT2NUM(i);
 
     if (RecordModelType(desc) == RMT_UINT64)
@@ -266,41 +296,41 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
       {
         assert(RARRAY_LEN(e) == 2);
         double mul = NUM2DBL(RARRAY_PTR(e)[1]);
-        double x = atof(buf);
+        double x = conv_str_to_double(tok, next);
         v = (uint64_t)(x * mul);
       }
       else
       {
-        v = strtol(buf, NULL, 10);
+        v = conv_str_to_uint(tok, next);
       }
 
       *((uint64_t*)ptr) = v;
     }
     else if (RecordModelType(desc) == RMT_UINT32)
     {
-      uint64_t v = strtol(buf, NULL, 10);
+      uint64_t v = conv_str_to_uint(tok, next);
       if (v > 0xFFFFFFFF) rb_raise(rb_eArgError, "Integer out of uint32 range: %ld", v);
       *((uint32_t*)ptr) = (uint32_t)v;
     }
     else if (RecordModelType(desc) == RMT_UINT16)
     {
-      uint64_t v = strtol(buf, NULL, 10);
+      uint64_t v = conv_str_to_uint(tok, next);
       if (v > 0xFFFF) rb_raise(rb_eArgError, "Integer out of uint16 range: %ld", v);
       *((uint16_t*)ptr) = (uint16_t)v;
     }
     else if (RecordModelType(desc) == RMT_UINT8)
     {
-      uint64_t v = strtol(buf, NULL, 10);
+      uint64_t v = conv_str_to_uint(tok, next);
       if (v > 0xFF) rb_raise(rb_eArgError, "Integer out of uint8 range: %ld", v);
       *((uint8_t*)ptr) = (uint8_t)v;
     }
     else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
     {
-      parse_hexstring((uint8_t*)ptr, desc, buflen, buf); 
+      parse_hexstring((uint8_t*)ptr, desc, (int)(next-tok), tok); 
     }
     else if (RecordModelType(desc) == RMT_DOUBLE)
     {
-      *((double*)ptr) = atof(buf);
+      *((double*)ptr) = conv_str_to_double(tok, next);
     }
     else
     {
@@ -308,8 +338,8 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
     }
   }
 
-  tok = parse_token(tok, buf, buflen);
-  if (buflen == 0)
+  tok = parse_token(&next);
+  if (tok == next)
     return Qnil;
   else
     return UINT2NUM(i); // means, has additional item (as i >= size)
