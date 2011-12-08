@@ -3,11 +3,12 @@ require 'RecordModelExt'
 class RecordModel
 
   class Builder
-    attr_accessor :keys, :values
+    attr_accessor :keys, :values, :accs
     def initialize
       @ids = {}
       @keys = []
       @values = []
+      @accs = {}
       yield self
     end
 
@@ -23,6 +24,23 @@ class RecordModel
       @values << [id, type, sz]
     end
 
+    def acc(id, type, *args)
+      case type
+      when :uint64_x2
+        id0, id1, _ = *args
+        raise if _
+        @accs[id] = %[
+          def #{id}() (self.#{id0} << 64) | self.#{id1} end
+          def #{id}=(v)
+            self.#{id0} = (v >> 64) & 0xFFFFFFFF_FFFFFFFF
+            self.#{id1} = (v)       & 0xFFFFFFFF_FFFFFFFF
+          end
+        ]
+      else
+        raise
+      end
+    end
+
     alias value val
   end
 
@@ -31,76 +49,39 @@ class RecordModel
 
     offset = 0
     info = {} 
-    defs = {}
-    defs_x2 = []
 
     keys = []
     b.keys.each do |id, type, sz|
-      info[id] = :key
-      if type == :uint64_x2
-        raise if sz
-        desc = def_descr(offset, :uint64, nil)
-        offset += type_size(:uint64, nil)
-        keys << desc
-        defs[:"#{id}__0"] = desc
-
-        desc = def_descr(offset, :uint64, nil)
-        offset += type_size(:uint64, nil)
-        keys << desc
-        defs[:"#{id}__1"] = desc
-
-        defs_x2 << id
-      else
-        desc = def_descr(offset, type, sz)
-        offset += type_size(type, sz)
-        keys << desc
-        defs[id] = desc
-      end
+      desc = def_descr(offset, type, sz)
+      offset += type_size(type, sz)
+      keys << desc
+      info[id] = [desc, :key]
     end
 
     values = []
     b.values.each do |id, type, sz|
-      info[id] = :value
-      if type == :uint64_x2 
-        raise if sz
-        desc = def_descr(offset, :uint64, nil)
-        offset += type_size(:uint64, nil)
-        values << desc
-        defs[:"#{id}__0"] = desc
-
-        desc = def_descr(offset, :uint64, nil)
-        offset += type_size(:uint64, nil)
-        values << desc
-        defs[:"#{id}__1"] = desc
-
-        defs_x2 << id
-      else
-        desc = def_descr(offset, type, sz)
-        offset += type_size(type, sz)
-        values << desc
-        defs[id] = desc
-      end
+      desc = def_descr(offset, type, sz)
+      offset += type_size(type, sz)
+      values << desc
+      info[id] = [desc, :value]
     end
 
     model = new(keys, values)
     klass = model.to_class
 
-    defs.each do |id, desc|
+    info.each do |id, v|
+      desc = v[0]
       klass.class_eval "def #{id}() self[#{desc}] end" 
       klass.class_eval "def #{id}=(v) self[#{desc}] = v end" 
     end
 
-    defs_x2.each do |id|
-      klass.class_eval "def #{id}() (#{id}__0 << 64) | #{id}__1 end"
-      klass.class_eval %[
-        def #{id}=(v)
-          self.#{id}__0 = (v >> 64) & 0xFFFFFFFF_FFFFFFFF
-          self.#{id}__1 = (v)       & 0xFFFFFFFF_FFFFFFFF
-        end]
+    b.accs.each do |id, code|
+      klass.class_eval code
     end
 
     info.freeze
     klass.const_set(:INFO, info)
+    klass.class_eval "def self.__info() INFO end"
     klass.class_eval "def __info() INFO end"
 
     return klass
@@ -140,13 +121,13 @@ class RecordModelInstance
 
   def keys_to_hash
     h = {}
-    __info().each {|id,t| h[id] = send(id) if t == :key}
+    __info().each {|id,v| t = v[1]; h[id] = send(id) if t == :key}
     h
   end
 
   def values_to_hash
     h = {}
-    __info().each {|id,t| h[id] = send(id) if t == :value}
+    __info().each {|id,v| t = v[1]; h[id] = send(id) if t == :value}
     h
   end
 

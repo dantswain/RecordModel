@@ -1,6 +1,8 @@
 #include "../../include/RecordModel.h"
 #include <assert.h> // assert
 #include <strings.h> // bzero
+#include <ctype.h> // isspace etc.
+#include <stdlib.h> // atof
 #include "ruby.h"
 
 /*
@@ -179,6 +181,140 @@ static VALUE RecordModelInstance_get(VALUE self, VALUE _desc)
   }
 }
 
+/*
+ * XXX: check buf length
+ */
+const char *parse_token(const char *src, char *buf, int &buflen)
+{
+  buflen = 0;
+
+  // at first skip whitespaces
+  while (isspace(*src)) ++src;
+
+  // copy the token into the buffer
+  while (*src != '\0' && !isspace(*src))
+  {
+    buf[buflen++] = *src;
+    ++src;
+  }
+
+  buf[buflen] = '\0';
+
+  return src;
+}
+
+void parse_hexstring(uint8_t *v, uint32_t desc, int strlen, const char *str)
+{
+  const int max_sz = 2*RecordModelTypeSize(desc);
+
+  if (strlen > max_sz)
+  {
+    rb_raise(rb_eArgError, "Invalid string size. Was: %d, Max: %d", strlen, max_sz);
+  }
+
+  bzero(v, RecordModelTypeSize(desc));
+
+  const int i_off = max_sz - strlen;
+
+  for (int i = 0; i < strlen; ++i)
+  {
+    int digit = from_hex_digit(str[i]);
+    if (digit < 0)
+      rb_raise(rb_eArgError, "Invalid hex digit at %s", &str[i]);
+
+    v[(i+i_off)/2] = (v[(i+i_off)/2] << 4) | (uint8_t)digit;
+  }
+}
+
+
+static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc_arr)
+{
+  RecordModelInstance *mi;
+  Data_Get_Struct(self, RecordModelInstance, mi);
+  const RecordModel &model = *mi->model;
+
+  Check_Type(_line, T_STRING);
+  Check_Type(_desc_arr, T_ARRAY);
+
+  char buf[1024]; // XXX
+  const char *tok = RSTRING_PTR(_line); 
+  int buflen;
+
+  int i;
+  for (i=0; i < RARRAY_LEN(_desc_arr); ++i)
+  {
+    VALUE e = RARRAY_PTR(_desc_arr)[i];
+    Check_Type(e, T_ARRAY);
+    assert(RARRAY_LEN(e) > 0);
+
+    bool has_additional = RARRAY_LEN(e) > 1 ? true : false;
+
+    uint32_t desc = NUM2UINT(RARRAY_PTR(e)[0]);
+
+    assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
+    const char *ptr = model.ptr_to_field(mi, desc);
+
+    tok = parse_token(tok, buf, buflen);
+    if (buflen == 0)
+      return UINT2NUM(i);
+
+    if (RecordModelType(desc) == RMT_UINT64)
+    {
+      uint64_t v;
+
+      if (has_additional)
+      {
+        assert(RARRAY_LEN(e) == 2);
+        double mul = NUM2DBL(RARRAY_PTR(e)[1]);
+        double x = atof(buf);
+        v = (uint64_t)(x * mul);
+      }
+      else
+      {
+        v = strtol(buf, NULL, 10);
+      }
+
+      *((uint64_t*)ptr) = v;
+    }
+    else if (RecordModelType(desc) == RMT_UINT32)
+    {
+      uint64_t v = strtol(buf, NULL, 10);
+      if (v > 0xFFFFFFFF) rb_raise(rb_eArgError, "Integer out of uint32 range: %ld", v);
+      *((uint32_t*)ptr) = (uint32_t)v;
+    }
+    else if (RecordModelType(desc) == RMT_UINT16)
+    {
+      uint64_t v = strtol(buf, NULL, 10);
+      if (v > 0xFFFF) rb_raise(rb_eArgError, "Integer out of uint16 range: %ld", v);
+      *((uint16_t*)ptr) = (uint16_t)v;
+    }
+    else if (RecordModelType(desc) == RMT_UINT8)
+    {
+      uint64_t v = strtol(buf, NULL, 10);
+      if (v > 0xFF) rb_raise(rb_eArgError, "Integer out of uint8 range: %ld", v);
+      *((uint8_t*)ptr) = (uint8_t)v;
+    }
+    else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
+    {
+      parse_hexstring((uint8_t*)ptr, desc, buflen, buf); 
+    }
+    else if (RecordModelType(desc) == RMT_DOUBLE)
+    {
+      *((double*)ptr) = atof(buf);
+    }
+    else
+    {
+      rb_raise(rb_eArgError, "Wrong description");
+    }
+  }
+
+  tok = parse_token(tok, buf, buflen);
+  if (buflen == 0)
+    return Qnil;
+  else
+    return UINT2NUM(i); // means, has additional item (as i >= size)
+}
+
 static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
 {
   RecordModelInstance *mi;
@@ -215,28 +351,8 @@ static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
   }
   else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
   {
-    const int max_sz = 2*RecordModelTypeSize(desc);
-
     Check_Type(_val, T_STRING);
-    if (RSTRING_LEN(_val) > max_sz)
-    {
-      rb_raise(rb_eArgError, "Invalid string size. Was: %d, Max: %d", (int)RSTRING_LEN(_val), max_sz);
-    }
-    const char *str = RSTRING_PTR(_val);
-    uint8_t *v = (uint8_t*) ptr;
-
-    bzero(v, RecordModelTypeSize(desc));
-
-    const int i_off = max_sz - RSTRING_LEN(_val);
-
-    for (int i = 0; i < RSTRING_LEN(_val); ++i)
-    {
-      int digit = from_hex_digit(str[i]);
-      if (digit < 0)
-        rb_raise(rb_eArgError, "Invalid hex digit at %s", &str[i]);
-
-      v[(i+i_off)/2] = (v[(i+i_off)/2] << 4) | (uint8_t)digit;
-    }
+    parse_hexstring((uint8_t*)ptr, desc, RSTRING_LEN(_val), RSTRING_PTR(_val));
   }
   else if (RecordModelType(desc) == RMT_DOUBLE)
   {
@@ -294,6 +410,8 @@ static VALUE RecordModel_to_class(VALUE self)
   rb_define_method(klass, "zero!", (VALUE (*)(...)) RecordModelInstance_zero, 0);
   rb_define_method(klass, "dup", (VALUE (*)(...)) RecordModelInstance_dup, 0);
   rb_define_method(klass, "sum_values!", (VALUE (*)(...)) RecordModelInstance_sum_values, 1);
+
+  rb_define_method(klass, "parse_line", (VALUE (*)(...)) RecordModelInstance_parse_line, 2);
 
   return klass;
 }
