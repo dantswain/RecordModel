@@ -161,23 +161,39 @@ static VALUE RecordDB_close(VALUE self)
   return Qnil;
 }
 
-/*
- * Overwrite value if key exists
- */
-static VALUE RecordDB_set(VALUE self, VALUE _mi)
+struct Params 
 {
-  RecordDB &mdb = RecordDB__get(self);
   RecordModelInstance *mi;
-  Data_Get_Struct(_mi, RecordModelInstance, mi);
+  RecordDB *mdb;
+};
+
+static VALUE set(void *p)
+{
+  Params *a = (Params*)p;
+  
+  RecordModelInstance *mi = a->mi; 
   RecordModel *m = mi->model;
 
-  bool res = mdb.db->set((const char*)mi + sizeof(RecordModelInstance), m->keysize,
-                         (const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
+  bool res = a->mdb->db->set((const char*)mi + sizeof(RecordModelInstance), m->keysize,
+                             (const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
 
   if (res)
     return Qtrue;
   else
     return Qfalse;
+}
+
+/*
+ * Overwrite value if key exists
+ */
+static VALUE RecordDB_set(VALUE self, VALUE _mi)
+{
+  Params p;
+
+  Data_Get_Struct(self, RecordDB, p.mdb);
+  Data_Get_Struct(_mi, RecordModelInstance, p.mi);
+
+  return rb_thread_blocking_region(set, &p, NULL, NULL);
 }
 
 /*
