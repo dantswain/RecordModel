@@ -123,22 +123,38 @@ static VALUE RecordDB_close(VALUE self)
   return Qnil;
 }
 
-static VALUE RecordDB_put(VALUE self, VALUE _mi)
+struct Params 
 {
-  RecordDB &mdb = RecordDB__get(self);
   RecordModelInstance *mi;
-  Data_Get_Struct(_mi, RecordModelInstance, mi);
+  RecordDB *mdb;
+};
+
+static VALUE put(void *p)
+{
+  Params *a = (Params*)p;
+  
+  RecordModelInstance *mi = a->mi; 
   RecordModel *m = mi->model;
 
   const leveldb::Slice key((const char*)mi + sizeof(RecordModelInstance), m->keysize);
   const leveldb::Slice value((const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
 
-  leveldb::Status s = mdb.db->Put(leveldb::WriteOptions(), key, value);
+  leveldb::Status s = a->mdb->db->Put(leveldb::WriteOptions(), key, value);
 
   if (s.ok())
     return Qtrue;
   else
     return Qfalse;
+}
+
+static VALUE RecordDB_put(VALUE self, VALUE _mi)
+{
+  Params p;
+
+  Data_Get_Struct(self, RecordDB, p.mdb);
+  Data_Get_Struct(_mi, RecordModelInstance, p.mi);
+
+  return rb_thread_blocking_region(put, &p, NULL, NULL);
 }
 
 static VALUE RecordDB_put_or_sum(VALUE self, VALUE _mi)
