@@ -259,6 +259,46 @@ uint64_t conv_str_to_uint(const char *s, const char *e)
   return v;
 }
 
+uint64_t conv_str_to_uint2(const char *s, const char *e, int precision)
+{
+  uint64_t v = 0;
+  int post_digits = -1; 
+  for (; s != e; ++s)
+  {
+    char c = *s;
+    if (c >= '0' && c <= '9')
+    {
+      v *= 10;
+      v += (c-'0');
+      if (post_digits >= 0)
+        ++post_digits;
+    }
+    else if (c == '.')
+    {
+      if (post_digits >= 0)
+        return 0; // invalid
+      // ignore
+      post_digits = 0;
+    }
+    else
+    {
+      return 0; // invalid
+    }
+  }
+
+  for (; post_digits < precision; ++post_digits)
+  {
+    v *= 10;
+  }
+
+  for (; post_digits > precision; --post_digits)
+  {
+    v /= 10;
+  }
+ 
+  return v;
+}
+
 
 static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc_arr)
 {
@@ -305,9 +345,7 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
       if (has_additional)
       {
         assert(RARRAY_LEN(e) == 2);
-        double mul = NUM2DBL(RARRAY_PTR(e)[1]);
-        double x = conv_str_to_double(tok, next);
-        v = (uint64_t)(x * mul);
+        v = conv_str_to_uint2(tok, next, FIX2INT(RARRAY_PTR(e)[1]));
       }
       else
       {
