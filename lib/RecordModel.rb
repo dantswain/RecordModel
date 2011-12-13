@@ -112,6 +112,9 @@ class RecordModel
 
 end
 
+class RecordModelInstanceArray
+end
+
 class RecordModelInstance
   include Comparable
 
@@ -136,4 +139,9 @@ class RecordModelInstance
   def inspect
     [self.class, keys_to_hash, values_to_hash]
   end
+
+  def self.make_array(n)
+    RecordModelInstanceArray.new(self, n)
+  end
+
 end

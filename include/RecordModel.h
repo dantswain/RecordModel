@@ -112,10 +112,9 @@ struct RecordModel
 
   char *elemptr(const RecordModelInstanceArray *mia, size_t i) const
   {
-    assert(i < mia->entries());
+    assert(i < mia->_capacity);
     return mia->ptr + (i*size);
   }
-
 
   ~RecordModel()
   {
