@@ -90,9 +90,14 @@ static void RecordModelInstance__free(void *ptr)
   free(ptr);
 }
 
+static VALUE RecordModelInstance__model(VALUE klass)
+{
+  return rb_cvar_get(klass, rb_intern("@@__model"));
+}
+
 static VALUE RecordModelInstance__allocate(VALUE klass)
 {
-  VALUE model = rb_cvar_get(klass, rb_intern("@@__model"));
+  VALUE model = RecordModelInstance__model(klass);
   RecordModel &m = RecordModel__get(model);
 
   VALUE obj;
@@ -105,11 +110,6 @@ static RecordModelInstance& RecordModelInstance__get(VALUE self) {
   RecordModelInstance *ptr;
   Data_Get_Struct(self, RecordModelInstance, ptr);
   return *ptr;
-}
-
-static VALUE RecordModelInstance__model(VALUE klass)
-{
-  return rb_cvar_get(klass, rb_intern("@@__model"));
 }
 
 static char to_hex_digit(uint8_t v)
@@ -496,15 +496,6 @@ static VALUE RecordModel_to_class(VALUE self)
   rb_cvar_set(klass, rb_intern("@@__model"), self);
   rb_define_alloc_func(klass, RecordModelInstance__allocate);
   rb_define_singleton_method(klass, "model", (VALUE (*)(...)) RecordModelInstance__model, 0);
-  rb_define_method(klass, "[]", (VALUE (*)(...)) RecordModelInstance_get, 1);
-  rb_define_method(klass, "[]=", (VALUE (*)(...)) RecordModelInstance_set, 2);
-  rb_define_method(klass, "zero!", (VALUE (*)(...)) RecordModelInstance_zero, 0);
-  rb_define_method(klass, "dup", (VALUE (*)(...)) RecordModelInstance_dup, 0);
-  rb_define_method(klass, "sum_values!", (VALUE (*)(...)) RecordModelInstance_sum_values, 1);
-  rb_define_method(klass, "<=>", (VALUE (*)(...)) RecordModelInstance_cmp, 1);
-
-  rb_define_method(klass, "parse_line", (VALUE (*)(...)) RecordModelInstance_parse_line, 2);
-
   return klass;
 }
 
@@ -518,4 +509,11 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModel, "size", (VALUE (*)(...)) RecordModel_size, 0);
 
   cRecordModelInstance = rb_define_class("RecordModelInstance", rb_cObject);
+  rb_define_method(cRecordModelInstance, "[]", (VALUE (*)(...)) RecordModelInstance_get, 1);
+  rb_define_method(cRecordModelInstance, "[]=", (VALUE (*)(...)) RecordModelInstance_set, 2);
+  rb_define_method(cRecordModelInstance, "zero!", (VALUE (*)(...)) RecordModelInstance_zero, 0);
+  rb_define_method(cRecordModelInstance, "dup", (VALUE (*)(...)) RecordModelInstance_dup, 0);
+  rb_define_method(cRecordModelInstance, "sum_values!", (VALUE (*)(...)) RecordModelInstance_sum_values, 1);
+  rb_define_method(cRecordModelInstance, "<=>", (VALUE (*)(...)) RecordModelInstance_cmp, 1);
+  rb_define_method(cRecordModelInstance, "parse_line", (VALUE (*)(...)) RecordModelInstance_parse_line, 2);
 }
