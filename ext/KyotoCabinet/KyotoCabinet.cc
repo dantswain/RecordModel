@@ -4,6 +4,7 @@
 #include "../../include/RecordModel.h"
 #include <assert.h> // assert
 #include <string> // std::string
+#include <algorithm> // std::sort
 
 #include "ruby.h"
 
@@ -184,6 +185,18 @@ struct Params
 {
   RecordDB *mdb;
   RecordModelInstanceArray *arr;
+  bool sort;
+};
+
+struct sorter
+{
+  RecordModel *model;
+  RecordModelInstanceArray *arr;
+ 
+  bool operator()(uint32_t a, uint32_t b)
+  {
+    return (model->compare_keys(model->keyptr(arr, a), model->keyptr(arr, b)) < 0);
+  }
 };
 
 static VALUE put_bulk(void *p)
@@ -191,22 +204,56 @@ static VALUE put_bulk(void *p)
   Params *a = (Params*)p;
   RecordModel *m = a->arr->model;
   
-  for (size_t i = 0; i < a->arr->entries(); ++i)
+  if (!a->sort)
   {
-    bool res = a->mdb->db->set(m->keyptr(a->arr, i), m->keysize(), m->dataptr(a->arr, i), m->datasize());
-    if (!res)
-      return Qfalse;
+    for (size_t i = 0; i < a->arr->entries(); ++i)
+    {
+      bool res = a->mdb->db->set(m->keyptr(a->arr, i), m->keysize(), m->dataptr(a->arr, i), m->datasize());
+      if (!res)
+        return Qfalse;
+    }
+    return Qtrue;
   }
+  else
+  {
+    size_t n = a->arr->entries();
+    uint32_t *idxs = (uint32_t*)malloc(sizeof(uint32_t) * n);
+    assert(idxs);
+    for (size_t i = 0; i < n; ++i)
+    {
+      idxs[i] = i;
+    }
+    sorter s;
+    s.model = m; 
+    s.arr = a->arr; 
+    std::sort(idxs, idxs+n, s);
 
-  return Qtrue;
+    bool res = true; 
+    for (size_t i = 0; i < n; ++i)
+    {
+      res = a->mdb->db->set(m->keyptr(a->arr, idxs[i]), m->keysize(), m->dataptr(a->arr, idxs[i]), m->datasize());
+      if (!res)
+        break;
+    }
+
+    free(idxs);
+
+    if (res) return Qtrue;
+    else return Qfalse;
+  }
 }
 
-static VALUE RecordDB_put_bulk(VALUE self, VALUE arr)
+static VALUE RecordDB_put_bulk(VALUE self, VALUE arr, VALUE sort)
 {
   Params p;
 
   Data_Get_Struct(self, RecordDB, p.mdb);
   Data_Get_Struct(arr, RecordModelInstanceArray, p.arr);
+
+  if (RTEST(sort))
+    p.sort = true;
+  else
+    p.sort = false;
 
   return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }
@@ -359,7 +406,7 @@ void Init_RecordModelKCDBExt()
   rb_define_singleton_method(cKCDB, "open", (VALUE (*)(...)) RecordDB__open, 4);
   rb_define_method(cKCDB, "close", (VALUE (*)(...)) RecordDB_close, 0);
   rb_define_method(cKCDB, "put", (VALUE (*)(...)) RecordDB_put, 1);
-  rb_define_method(cKCDB, "put_bulk", (VALUE (*)(...)) RecordDB_put_bulk, 1);
+  rb_define_method(cKCDB, "put_bulk", (VALUE (*)(...)) RecordDB_put_bulk, 2);
   rb_define_method(cKCDB, "accum_sum", (VALUE (*)(...)) RecordDB_accum_sum, 1);
   rb_define_method(cKCDB, "add", (VALUE (*)(...)) RecordDB_add, 1);
   rb_define_method(cKCDB, "get", (VALUE (*)(...)) RecordDB_get, 1);

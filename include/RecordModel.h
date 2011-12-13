@@ -302,17 +302,13 @@ struct RecordModel
     return compare_keys(this->keyptr(a), this->keysize(), this->keyptr(b), this->keysize());
   }
 
-  int compare_keys(const char *akbuf, size_t aksiz, const char *bkbuf, size_t bksiz) const
+  int compare_keys(const char *akbuf, const char *bkbuf) const
   {
-    assert(aksiz == bksiz && aksiz == this->keysize());
-
     for (uint32_t *k = this->keys; *k != 0; ++k)
     {
       uint32_t desc = *k;
 
-      assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= this->size); // XXX
-      assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= aksiz); // XXX
-      assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= bksiz); // XXX
+      assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= this->_keysize);
 
       if (RecordModelType(desc) == RMT_UINT64)
       {
@@ -381,6 +377,12 @@ struct RecordModel
       }
     }
     return 0;
+  }
+
+  int compare_keys(const char *akbuf, size_t aksiz, const char *bkbuf, size_t bksiz) const
+  {
+    assert(aksiz == bksiz && aksiz == this->keysize());
+    return compare_keys(akbuf, bkbuf);
   }
 
 };
