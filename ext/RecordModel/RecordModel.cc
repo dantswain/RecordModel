@@ -127,6 +127,19 @@ static int from_hex_digit(char c)
   return -1;
 }
 
+/*
+ * The <=> operator
+ */
+static VALUE RecordModelInstance_cmp(VALUE _a, VALUE _b)
+{
+  RecordModelInstance *a;
+  RecordModelInstance *b;
+  Data_Get_Struct(_a, RecordModelInstance, a);
+  Data_Get_Struct(_b, RecordModelInstance, b);
+
+  return INT2FIX(a->model->compare_keys(a, b));
+}
+
 static VALUE RecordModelInstance_get(VALUE self, VALUE _desc)
 {
   RecordModelInstance *mi;
@@ -488,6 +501,7 @@ static VALUE RecordModel_to_class(VALUE self)
   rb_define_method(klass, "zero!", (VALUE (*)(...)) RecordModelInstance_zero, 0);
   rb_define_method(klass, "dup", (VALUE (*)(...)) RecordModelInstance_dup, 0);
   rb_define_method(klass, "sum_values!", (VALUE (*)(...)) RecordModelInstance_sum_values, 1);
+  rb_define_method(klass, "<=>", (VALUE (*)(...)) RecordModelInstance_cmp, 1);
 
   rb_define_method(klass, "parse_line", (VALUE (*)(...)) RecordModelInstance_parse_line, 2);
 

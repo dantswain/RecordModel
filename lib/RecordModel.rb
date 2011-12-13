@@ -113,6 +113,8 @@ class RecordModel
 end
 
 class RecordModelInstance
+  include Comparable
+
   def to_hash
     h = {}
     __info().each_key {|id| h[id] = send(id)}
