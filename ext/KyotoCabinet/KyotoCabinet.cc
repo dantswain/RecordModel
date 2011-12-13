@@ -164,7 +164,7 @@ static VALUE RecordDB_close(VALUE self)
 /*
  * Overwrite value if key exists
  */
-static VALUE RecordDB_set(VALUE self, VALUE _mi)
+static VALUE RecordDB_put(VALUE self, VALUE _mi)
 {
   RecordDB *mdb;
   RecordModelInstance *mi;
@@ -186,7 +186,7 @@ struct Params
   RecordDB *mdb;
 };
 
-static VALUE set_bulk(void *p)
+static VALUE put_bulk(void *p)
 {
   Params *a = (Params*)p;
   
@@ -204,7 +204,7 @@ static VALUE set_bulk(void *p)
   return Qtrue;
 }
 
-static VALUE RecordDB_set_bulk(VALUE self, VALUE arr)
+static VALUE RecordDB_put_bulk(VALUE self, VALUE arr)
 {
   Params p;
 
@@ -213,7 +213,7 @@ static VALUE RecordDB_set_bulk(VALUE self, VALUE arr)
 
   Data_Get_Struct(self, RecordDB, p.mdb);
 
-  return rb_thread_blocking_region(set_bulk, &p, NULL, NULL);
+  return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }
 
 /*
@@ -363,8 +363,8 @@ void Init_RecordModelKCDBExt()
   VALUE cKCDB = rb_define_class("RecordModelKCDB", rb_cObject);
   rb_define_singleton_method(cKCDB, "open", (VALUE (*)(...)) RecordDB__open, 4);
   rb_define_method(cKCDB, "close", (VALUE (*)(...)) RecordDB_close, 0);
-  rb_define_method(cKCDB, "set", (VALUE (*)(...)) RecordDB_set, 1);
-  rb_define_method(cKCDB, "set_bulk", (VALUE (*)(...)) RecordDB_set_bulk, 1);
+  rb_define_method(cKCDB, "put", (VALUE (*)(...)) RecordDB_put, 1);
+  rb_define_method(cKCDB, "put_bulk", (VALUE (*)(...)) RecordDB_put_bulk, 1);
   rb_define_method(cKCDB, "accum_sum", (VALUE (*)(...)) RecordDB_accum_sum, 1);
   rb_define_method(cKCDB, "add", (VALUE (*)(...)) RecordDB_add, 1);
   rb_define_method(cKCDB, "get", (VALUE (*)(...)) RecordDB_get, 1);
