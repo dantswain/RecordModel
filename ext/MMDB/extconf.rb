@@ -1,2 +1,2 @@
 require 'mkmf'
-create_makefile('MMDBExt') 
+create_makefile('RecordModelMMDBExt') 

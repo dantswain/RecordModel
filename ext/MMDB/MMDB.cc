@@ -9,6 +9,9 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
+#include <string.h> // strerror
+#include <errno.h>  // errno
+
 #include "ruby.h"
 
 /*
@@ -127,8 +130,13 @@ static VALUE RecordDB__open(VALUE klass, VALUE path, VALUE modelklass, VALUE max
   int err = ftruncate(mdb->db_handle, mdb->length); 
   assert(err == 0);
 
-  mdb->ptr = (char*)mmap(NULL, mdb->length, PROT_READ|PROT_WRITE, 0/*|MAP_HUGETLB*/, mdb->db_handle, 0);
-  assert(mdb->ptr != MAP_FAILED);
+  void *mm_ptr = mmap(NULL, mdb->length, PROT_READ|PROT_WRITE, MAP_SHARED /*| MAP_HUGETLB*/, mdb->db_handle, 0);
+  if (mm_ptr == MAP_FAILED)
+  {
+    printf("mmap failed: %s\n", strerror(errno));
+    assert(false);
+  }
+  mdb->ptr = (char*)mm_ptr;
 
   mdb->modelklass = modelklass;
   mdb->model = m;
