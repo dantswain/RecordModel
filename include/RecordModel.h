@@ -18,6 +18,36 @@ struct RecordModelInstance
 };
 #pragma pack(pop)
 
+struct RecordModelInstanceArray
+{
+  RecordModel *model;
+  char *ptr;
+  size_t _capacity;
+  size_t _entries;
+
+  size_t entries() const { return _entries; }
+
+  RecordModelInstanceArray()
+  {
+    model = NULL;
+    ptr = NULL;
+    _capacity = 0;
+    _entries = 0;
+  }
+
+  ~RecordModelInstanceArray()
+  {
+    if (ptr)
+    {
+      free(ptr);
+      ptr = NULL;
+    }
+  }
+
+  bool empty() const { return (_entries == 0); }
+  bool full() const { return (_entries >= _capacity); }
+};
+
 //
 // If the RecordModelInstance.ptr is allocated
 // and as such has to be freed. Else it points
@@ -58,15 +88,34 @@ struct RecordModel
   uint32_t keysize() const { return _keysize; }
   uint32_t datasize() const { return size - _keysize; } 
 
-  const char *keyptr(const RecordModelInstance *mi) const
+  char *keyptr(const RecordModelInstance *mi) const
   {
-    return (const char*)mi->ptr;
+    return mi->ptr;
   }
 
-  const char *dataptr(const RecordModelInstance *mi) const
+  char *dataptr(const RecordModelInstance *mi) const
   {
-    return (const char*)(mi->ptr + keysize());
+    return (mi->ptr + keysize());
   }
+
+  char *keyptr(const RecordModelInstanceArray *mia, size_t i) const
+  {
+    assert(i < mia->entries());
+    return mia->ptr + (i*size);
+  }
+
+  char *dataptr(const RecordModelInstanceArray *mia, size_t i) const
+  {
+    assert(i < mia->entries());
+    return mia->ptr + (i*size) + keysize();
+  }
+
+  char *elemptr(const RecordModelInstanceArray *mia, size_t i) const
+  {
+    assert(i < mia->entries());
+    return mia->ptr + (i*size);
+  }
+
 
   ~RecordModel()
   {

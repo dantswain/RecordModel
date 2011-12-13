@@ -182,21 +182,18 @@ static VALUE RecordDB_put(VALUE self, VALUE _mi)
 
 struct Params 
 {
-  VALUE arr;
   RecordDB *mdb;
+  RecordModelInstanceArray *arr;
 };
 
 static VALUE put_bulk(void *p)
 {
   Params *a = (Params*)p;
+  RecordModel *m = a->arr->model;
   
-  for (int i = 0; i < RARRAY_LEN(a->arr); ++i) 
+  for (size_t i = 0; i < a->arr->entries(); ++i)
   {
-    RecordModelInstance *mi; 
-    Data_Get_Struct(RARRAY_PTR(a->arr)[i], RecordModelInstance, mi);
-    RecordModel *m = mi->model;
-
-    bool res = a->mdb->db->set(m->keyptr(mi), m->keysize(), m->dataptr(mi), m->datasize());
+    bool res = a->mdb->db->set(m->keyptr(a->arr, i), m->keysize(), m->dataptr(a->arr, i), m->datasize());
     if (!res)
       return Qfalse;
   }
@@ -208,10 +205,8 @@ static VALUE RecordDB_put_bulk(VALUE self, VALUE arr)
 {
   Params p;
 
-  Check_Type(arr, T_ARRAY);
-  p.arr = arr;
-
   Data_Get_Struct(self, RecordDB, p.mdb);
+  Data_Get_Struct(self, RecordModelInstanceArray, p.arr);
 
   return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }

@@ -5,12 +5,106 @@
 #include <stdlib.h> // atof
 #include "ruby.h"
 
+static char to_hex_digit(uint8_t v)
+{
+  if (/*v >= 0 && */v <= 9) return '0' + v;
+  if (v >= 10 && v <= 15) return 'A' + v - 10;
+  return '#';
+}
+
+static int from_hex_digit(char c)
+{
+  if (c >= '0' && c <= '9') return c-'0';
+  if (c >= 'a' && c <= 'f') return c-'a'+10;
+  if (c >= 'A' && c <= 'F') return c-'A'+10;
+  return -1;
+}
+
+static double conv_str_to_double(const char *s, const char *e)
+{
+  char c = *e;
+  *((char*)e) = '\0';
+  double v = atof(s);
+  *((char*)e) = c;
+  return v;
+#if 0
+  char buf[32];
+  int sz = (int)(e-s);
+  memcpy(buf, s, sz); 
+  buf[sz] = '\0';
+  return atof(buf);
+#endif
+}
+
+static uint64_t conv_str_to_uint(const char *s, const char *e)
+{
+  uint64_t v = 0;
+  for (; s != e; ++s)
+  {
+    char c = *s;
+    if (c >= '0' && c <= '9')
+    {
+      v *= 10;
+      v += (c-'0');
+    }
+    else
+    {
+      return 0; // invalid
+    }
+  }
+  return v;
+}
+
+static uint64_t conv_str_to_uint2(const char *s, const char *e, int precision)
+{
+  uint64_t v = 0;
+  int post_digits = -1; 
+  for (; s != e; ++s)
+  {
+    char c = *s;
+    if (c >= '0' && c <= '9')
+    {
+      v *= 10;
+      v += (c-'0');
+      if (post_digits >= 0)
+        ++post_digits;
+    }
+    else if (c == '.')
+    {
+      if (post_digits >= 0)
+        return 0; // invalid
+      // ignore
+      post_digits = 0;
+    }
+    else
+    {
+      return 0; // invalid
+    }
+  }
+
+  for (; post_digits < precision; ++post_digits)
+  {
+    v *= 10;
+  }
+
+  for (; post_digits > precision; --post_digits)
+  {
+    v /= 10;
+  }
+ 
+  return v;
+}
 /*
  * C extension
  */
 
 static VALUE cRecordModel;
 static VALUE cRecordModelInstance;
+static VALUE cRecordModelInstanceArray;
+
+/*
+ * RecordModel
+ */
 
 static void RecordModel__free(void *ptr)
 {
@@ -85,6 +179,10 @@ static VALUE RecordModel_size(VALUE self)
   return UINT2NUM(m.size);
 }
 
+/*
+ * RecordModelInstance
+ */
+
 static void RecordModelInstance__free(void *ptr)
 {
   RecordModelInstance *mi = (RecordModelInstance*)ptr;
@@ -130,20 +228,6 @@ static RecordModelInstance& RecordModelInstance__get(VALUE self) {
   return *ptr;
 }
 
-static char to_hex_digit(uint8_t v)
-{
-  if (/*v >= 0 && */v <= 9) return '0' + v;
-  if (v >= 10 && v <= 15) return 'A' + v - 10;
-  return '#';
-}
-
-static int from_hex_digit(char c)
-{
-  if (c >= '0' && c <= '9') return c-'0';
-  if (c >= 'a' && c <= 'f') return c-'a'+10;
-  if (c >= 'A' && c <= 'F') return c-'A'+10;
-  return -1;
-}
 
 /*
  * The <=> operator
@@ -232,7 +316,7 @@ const char *parse_token(const char **src)
   return beg;
 }
 
-void parse_hexstring(uint8_t *v, uint32_t desc, int strlen, const char *str)
+static void parse_hexstring(uint8_t *v, uint32_t desc, int strlen, const char *str)
 {
   const int max_sz = 2*RecordModelTypeSize(desc);
 
@@ -254,82 +338,6 @@ void parse_hexstring(uint8_t *v, uint32_t desc, int strlen, const char *str)
     v[(i+i_off)/2] = (v[(i+i_off)/2] << 4) | (uint8_t)digit;
   }
 }
-
-double conv_str_to_double(const char *s, const char *e)
-{
-  char c = *e;
-  *((char*)e) = '\0';
-  double v = atof(s);
-  *((char*)e) = c;
-  return v;
-#if 0
-  char buf[32];
-  int sz = (int)(e-s);
-  memcpy(buf, s, sz); 
-  buf[sz] = '\0';
-  return atof(buf);
-#endif
-}
-
-uint64_t conv_str_to_uint(const char *s, const char *e)
-{
-  uint64_t v = 0;
-  for (; s != e; ++s)
-  {
-    char c = *s;
-    if (c >= '0' && c <= '9')
-    {
-      v *= 10;
-      v += (c-'0');
-    }
-    else
-    {
-      return 0; // invalid
-    }
-  }
-  return v;
-}
-
-uint64_t conv_str_to_uint2(const char *s, const char *e, int precision)
-{
-  uint64_t v = 0;
-  int post_digits = -1; 
-  for (; s != e; ++s)
-  {
-    char c = *s;
-    if (c >= '0' && c <= '9')
-    {
-      v *= 10;
-      v += (c-'0');
-      if (post_digits >= 0)
-        ++post_digits;
-    }
-    else if (c == '.')
-    {
-      if (post_digits >= 0)
-        return 0; // invalid
-      // ignore
-      post_digits = 0;
-    }
-    else
-    {
-      return 0; // invalid
-    }
-  }
-
-  for (; post_digits < precision; ++post_digits)
-  {
-    v *= 10;
-  }
-
-  for (; post_digits > precision; --post_digits)
-  {
-    v /= 10;
-  }
- 
-  return v;
-}
-
 
 static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc_arr)
 {
@@ -517,6 +525,110 @@ static VALUE RecordModel_to_class(VALUE self)
   return klass;
 }
 
+/*
+ * RecordModelInstanceArray
+ */
+
+static void RecordModelInstanceArray__free(void *ptr)
+{
+  RecordModelInstanceArray *mia = (RecordModelInstanceArray*)ptr;
+
+  delete mia;
+}
+
+static VALUE RecordModelInstanceArray__allocate(VALUE klass)
+{
+  VALUE obj;
+  // XXX: gc model class
+  obj = Data_Wrap_Struct(klass, NULL, RecordModelInstanceArray__free, new RecordModelInstanceArray());
+  return obj;
+}
+
+static VALUE RecordModelInstanceArray_initialize(VALUE self, VALUE modelklass, VALUE _n)
+{
+  RecordModelInstanceArray *mia;
+  RecordModel *m;
+
+  Data_Get_Struct(self, RecordModelInstanceArray, mia);
+  VALUE model = RecordModelInstance__model(modelklass);
+  Data_Get_Struct(model, RecordModel, m);
+
+  if (mia->model || mia->ptr)
+  {
+    rb_raise(rb_eArgError, "Already initialized");
+    return Qnil;
+  }
+
+  mia->model = m; // XXX: gc!
+
+  mia->_capacity = NUM2ULONG(_n);
+  if (mia->_capacity == 0)
+  {
+    rb_raise(rb_eArgError, "Invalid size of Array");
+    return Qnil;
+  }
+
+  mia->ptr = (char*)malloc(m->size * mia->_capacity);
+  if (!mia->ptr)
+  {
+    rb_raise(rb_eArgError, "Failed to allocate memory");
+    return Qnil;
+  }
+
+  mia->_entries = 0;
+
+  return Qnil;
+}
+
+static VALUE RecordModelInstanceArray_is_empty(VALUE self)
+{
+  RecordModelInstanceArray *mia;
+  Data_Get_Struct(self, RecordModelInstanceArray, mia);
+
+  return mia->empty() ? Qtrue : Qfalse;
+}
+
+static VALUE RecordModelInstanceArray_is_full(VALUE self)
+{
+  RecordModelInstanceArray *mia;
+  Data_Get_Struct(self, RecordModelInstanceArray, mia);
+
+  return mia->full() ? Qtrue : Qfalse;
+}
+
+static VALUE RecordModelInstanceArray_push(VALUE self, VALUE _mi)
+{
+  RecordModelInstanceArray *mia;
+  Data_Get_Struct(self, RecordModelInstanceArray, mia);
+  RecordModelInstance *mi;
+  Data_Get_Struct(_mi, RecordModelInstance, mi);
+
+  RecordModel *m = mia->model;
+
+  if (m != mi->model)
+    rb_raise(rb_eArgError, "Model mismatch");
+
+  if (mia->full())
+    rb_raise(rb_eArgError, "Array is full");
+
+  memcpy(m->elemptr(mia, mia->_entries), mi->ptr, m->size);
+
+  mia->_entries += 1;
+ 
+  return self;
+}
+
+static VALUE RecordModelInstanceArray_reset(VALUE self)
+{
+  RecordModelInstanceArray *mia;
+  Data_Get_Struct(self, RecordModelInstanceArray, mia);
+
+  mia->_entries = 0;
+ 
+  return self;
+}
+
+
 extern "C"
 void Init_RecordModelExt()
 {
@@ -534,4 +646,12 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstance, "sum_values!", (VALUE (*)(...)) RecordModelInstance_sum_values, 1);
   rb_define_method(cRecordModelInstance, "<=>", (VALUE (*)(...)) RecordModelInstance_cmp, 1);
   rb_define_method(cRecordModelInstance, "parse_line", (VALUE (*)(...)) RecordModelInstance_parse_line, 2);
+
+  cRecordModelInstanceArray = rb_define_class("RecordModelInstanceArray", rb_cObject);
+  rb_define_alloc_func(cRecordModelInstanceArray, RecordModelInstanceArray__allocate);
+  rb_define_method(cRecordModelInstanceArray, "initialize", (VALUE (*)(...)) RecordModelInstanceArray_initialize, 2);
+  rb_define_method(cRecordModelInstanceArray, "empty?", (VALUE (*)(...)) RecordModelInstanceArray_is_empty, 0);
+  rb_define_method(cRecordModelInstanceArray, "full?", (VALUE (*)(...)) RecordModelInstanceArray_is_full, 0);
+  rb_define_method(cRecordModelInstanceArray, "<<", (VALUE (*)(...)) RecordModelInstanceArray_push, 1);
+  rb_define_method(cRecordModelInstanceArray, "reset", (VALUE (*)(...)) RecordModelInstanceArray_reset, 0);
 }
