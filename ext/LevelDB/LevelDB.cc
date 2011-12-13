@@ -123,23 +123,20 @@ static VALUE RecordDB_close(VALUE self)
   return Qnil;
 }
 
-struct Params 
+static VALUE RecordDB_put(VALUE self, VALUE _mi)
 {
   RecordModelInstance *mi;
   RecordDB *mdb;
-};
 
-static VALUE put(void *p)
-{
-  Params *a = (Params*)p;
-  
-  RecordModelInstance *mi = a->mi; 
+  Data_Get_Struct(self, RecordDB, mdb);
+  Data_Get_Struct(_mi, RecordModelInstance, mi);
+
   RecordModel *m = mi->model;
 
   const leveldb::Slice key((const char*)mi + sizeof(RecordModelInstance), m->keysize);
   const leveldb::Slice value((const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
 
-  leveldb::Status s = a->mdb->db->Put(leveldb::WriteOptions(), key, value);
+  leveldb::Status s = mdb->db->Put(leveldb::WriteOptions(), key, value);
 
   if (s.ok())
     return Qtrue;
@@ -147,14 +144,44 @@ static VALUE put(void *p)
     return Qfalse;
 }
 
-static VALUE RecordDB_put(VALUE self, VALUE _mi)
+struct Params 
+{
+  VALUE arr;
+  RecordDB *mdb;
+};
+
+static VALUE put_bulk(void *p)
+{
+  Params *a = (Params*)p;
+  
+  for (int i = 0; i < RARRAY_LEN(a->arr); ++i) 
+  {
+    RecordModelInstance *mi; 
+    Data_Get_Struct(RARRAY_PTR(a->arr)[i], RecordModelInstance, mi);
+    RecordModel *m = mi->model;
+
+    const leveldb::Slice key((const char*)mi + sizeof(RecordModelInstance), m->keysize);
+    const leveldb::Slice value((const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
+
+    leveldb::Status s = a->mdb->db->Put(leveldb::WriteOptions(), key, value);
+
+    if (!s.ok())
+      return Qfalse;
+  }
+
+  return Qtrue;
+}
+
+static VALUE RecordDB_put_bulk(VALUE self, VALUE arr)
 {
   Params p;
 
-  Data_Get_Struct(self, RecordDB, p.mdb);
-  Data_Get_Struct(_mi, RecordModelInstance, p.mi);
+  Check_Type(arr, T_ARRAY);
+  p.arr = arr;
 
-  return rb_thread_blocking_region(put, &p, NULL, NULL);
+  Data_Get_Struct(self, RecordDB, p.mdb);
+
+  return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }
 
 static VALUE RecordDB_put_or_sum(VALUE self, VALUE _mi)
@@ -334,6 +361,7 @@ void Init_RecordModelLevelDBExt()
   rb_define_singleton_method(cLevelDB, "open", (VALUE (*)(...)) RecordDB__open, 2);
   rb_define_method(cLevelDB, "close", (VALUE (*)(...)) RecordDB_close, 0);
   rb_define_method(cLevelDB, "put", (VALUE (*)(...)) RecordDB_put, 1);
+  rb_define_method(cLevelDB, "put_bulk", (VALUE (*)(...)) RecordDB_put_bulk, 1);
   rb_define_method(cLevelDB, "add", (VALUE (*)(...)) RecordDB_add, 1);
   rb_define_method(cLevelDB, "put_or_sum", (VALUE (*)(...)) RecordDB_put_or_sum, 1);
   rb_define_method(cLevelDB, "get", (VALUE (*)(...)) RecordDB_get, 1);
