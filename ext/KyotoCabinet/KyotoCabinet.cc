@@ -161,21 +161,19 @@ static VALUE RecordDB_close(VALUE self)
   return Qnil;
 }
 
-struct Params 
+/*
+ * Overwrite value if key exists
+ */
+static VALUE RecordDB_set(VALUE self, VALUE _mi)
 {
-  RecordModelInstance *mi;
   RecordDB *mdb;
-};
-
-static VALUE set(void *p)
-{
-  Params *a = (Params*)p;
-  
-  RecordModelInstance *mi = a->mi; 
+  RecordModelInstance *mi;
+  Data_Get_Struct(self, RecordDB, mdb);
+  Data_Get_Struct(_mi, RecordModelInstance, mi);
   RecordModel *m = mi->model;
 
-  bool res = a->mdb->db->set((const char*)mi + sizeof(RecordModelInstance), m->keysize,
-                             (const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
+  bool res = mdb->db->set((const char*)mi + sizeof(RecordModelInstance), m->keysize,
+                          (const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
 
   if (res)
     return Qtrue;
@@ -183,17 +181,42 @@ static VALUE set(void *p)
     return Qfalse;
 }
 
-/*
- * Overwrite value if key exists
- */
-static VALUE RecordDB_set(VALUE self, VALUE _mi)
+struct Params 
+{
+  VALUE arr;
+  RecordDB *mdb;
+};
+
+static VALUE set_bulk(void *p)
+{
+  Params *a = (Params*)p;
+  
+  for (int i = 0; i < RARRAY_LEN(a->arr); ++i) 
+  {
+    RecordModelInstance *mi; 
+    Data_Get_Struct(RARRAY_PTR(a->arr)[i], RecordModelInstance, mi);
+    RecordModel *m = mi->model;
+
+    bool res = a->mdb->db->set((const char*)mi + sizeof(RecordModelInstance), m->keysize,
+                            (const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
+
+    if (!res)
+      return Qfalse;
+  }
+
+  return Qtrue;
+}
+
+static VALUE RecordDB_set_bulk(VALUE self, VALUE arr)
 {
   Params p;
 
-  Data_Get_Struct(self, RecordDB, p.mdb);
-  Data_Get_Struct(_mi, RecordModelInstance, p.mi);
+  Check_Type(arr, T_ARRAY);
+  p.arr = arr;
 
-  return rb_thread_blocking_region(set, &p, NULL, NULL);
+  Data_Get_Struct(self, RecordDB, p.mdb);
+
+  return rb_thread_blocking_region(set_bulk, &p, NULL, NULL);
 }
 
 /*
@@ -353,6 +376,7 @@ void Init_RecordModelKCDBExt()
   rb_define_singleton_method(cKCDB, "open", (VALUE (*)(...)) RecordDB__open, 4);
   rb_define_method(cKCDB, "close", (VALUE (*)(...)) RecordDB_close, 0);
   rb_define_method(cKCDB, "set", (VALUE (*)(...)) RecordDB_set, 1);
+  rb_define_method(cKCDB, "set_bulk", (VALUE (*)(...)) RecordDB_set_bulk, 1);
   rb_define_method(cKCDB, "accum_sum", (VALUE (*)(...)) RecordDB_accum_sum, 1);
   rb_define_method(cKCDB, "add", (VALUE (*)(...)) RecordDB_add, 1);
   rb_define_method(cKCDB, "get", (VALUE (*)(...)) RecordDB_get, 1);
