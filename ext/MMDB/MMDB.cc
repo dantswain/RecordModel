@@ -14,21 +14,6 @@
 
 #include "ruby.h"
 
-/*
-struct ModelComparator : public kyotocabinet::Comparator
-{
-  RecordModel *model;
-
-  ModelComparator(RecordModel *_model) : model(_model) {}
-  virtual ~ModelComparator() {}
-
-  virtual int32_t compare(const char* akbuf, size_t aksiz, const char* bkbuf, size_t bksiz)
-  {
-    return model->compare_keys(akbuf, aksiz, bkbuf, bksiz);
-  }
-};
-*/
-
 struct RecordDB
 {
   VALUE modelklass;
