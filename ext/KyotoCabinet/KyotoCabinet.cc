@@ -83,7 +83,7 @@ static VALUE RecordDB__open(VALUE klass, VALUE path, VALUE modelklass, VALUE wri
   Check_Type(path, T_STRING);
   Check_Type(hash, T_HASH);
 
-  VALUE model = rb_cvar_get(modelklass, rb_intern("@@__model"));
+  VALUE model = rb_cvar_get(modelklass, rb_intern("@@__model")); // XXX: funcall
   RecordModel *m;
   Data_Get_Struct(model, RecordModel, m);
  
@@ -172,8 +172,7 @@ static VALUE RecordDB_set(VALUE self, VALUE _mi)
   Data_Get_Struct(_mi, RecordModelInstance, mi);
   RecordModel *m = mi->model;
 
-  bool res = mdb->db->set((const char*)mi + sizeof(RecordModelInstance), m->keysize,
-                          (const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
+  bool res = mdb->db->set(m->keyptr(mi), m->keysize(), m->dataptr(mi), m->datasize());
 
   if (res)
     return Qtrue;
@@ -197,9 +196,7 @@ static VALUE set_bulk(void *p)
     Data_Get_Struct(RARRAY_PTR(a->arr)[i], RecordModelInstance, mi);
     RecordModel *m = mi->model;
 
-    bool res = a->mdb->db->set((const char*)mi + sizeof(RecordModelInstance), m->keysize,
-                            (const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
-
+    bool res = a->mdb->db->set(m->keyptr(mi), m->keysize(), m->dataptr(mi), m->datasize());
     if (!res)
       return Qfalse;
   }
@@ -229,9 +226,7 @@ static VALUE RecordDB_add(VALUE self, VALUE _mi)
   Data_Get_Struct(_mi, RecordModelInstance, mi);
   RecordModel *m = mi->model;
 
-  bool res = mdb.db->add((const char*)mi + sizeof(RecordModelInstance), m->keysize,
-                         (const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
-
+  bool res = mdb.db->add(m->keyptr(mi), m->keysize(), m->dataptr(mi), m->datasize());
   if (res)
     return Qtrue;
   else
@@ -248,26 +243,21 @@ static VALUE RecordDB_accum_sum(VALUE self, VALUE _mi)
   RecordModelInstance *newmi = m->dup_instance(mi);
   assert(newmi);
 
-  int32_t res = mdb.db->get((const char*)newmi + sizeof(RecordModelInstance), m->keysize,
-                         (char*)newmi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
-
+  int32_t res = mdb.db->get(m->keyptr(newmi), m->keysize(), m->dataptr(newmi), m->datasize());
   bool ret = false;
 
-  if (res == -1 || res != (m->size - m->keysize))
+  if (res == -1 || res != (int)m->datasize())
   {
-    free(newmi);
+    free(newmi); // XXX
 
     // key does not exist. simply put record.
-    ret = mdb.db->add((const char*)mi + sizeof(RecordModelInstance), m->keysize,
-                      (const char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
-
+    ret = mdb.db->add(m->keyptr(mi), m->keysize(), m->dataptr(mi), m->datasize());
   }
   else
   {
     // key exists. accum record.
     m->sum_instance(newmi, mi);
-    ret = mdb.db->set((const char*)newmi + sizeof(RecordModelInstance), m->keysize,
-                      (const char*)newmi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
+    ret = mdb.db->set(m->keyptr(newmi), m->keysize(), m->dataptr(newmi), m->datasize());
   }
 
   if (ret)
@@ -286,10 +276,8 @@ static VALUE RecordDB_get(VALUE self, VALUE _mi)
   Data_Get_Struct(_mi, RecordModelInstance, mi);
   RecordModel *m = mi->model;
 
-  int32_t res = mdb.db->get((const char*)mi + sizeof(RecordModelInstance), m->keysize,
-                         (char*)mi + sizeof(RecordModelInstance) + m->keysize, m->size - m->keysize);
-
-  if (res == -1 || res != (m->size - m->keysize))
+  int32_t res = mdb.db->get(m->keyptr(mi), m->keysize(), m->dataptr(mi), m->datasize());
+  if (res == -1 || res != (int)m->datasize())
     return Qnil;
   else
     return _mi;
@@ -322,7 +310,7 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
   bool valid = false;
 
   // position
-  valid = it->jump((const char*)current + sizeof(RecordModelInstance), model.keysize);
+  valid = it->jump(model.keyptr(current), model.keysize());
 
   std::string key_val;
 
@@ -334,8 +322,8 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
       return Qfalse;
     }
     // copy key into current
-    assert(key_val.size() == model.keysize);
-    memcpy(((char*)current) + sizeof(RecordModelInstance), key_val.data(), model.keysize);
+    assert(key_val.size() == model.keysize());
+    memcpy((char*)model.keyptr(current), key_val.data(), model.keysize());
 
     assert(model.compare_keys(current, from) >= 0);
 
@@ -352,8 +340,8 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
         delete it;
         return Qfalse;
       }
-      assert(key_val.size() == model.size - model.keysize);
-      memcpy(((char*)current) + sizeof(RecordModelInstance) + model.keysize, key_val.data(), key_val.size());
+      assert(key_val.size() == model.datasize());
+      memcpy(model.dataptr(current), key_val.data(), key_val.size());
       // yield value
       rb_yield(_current); // XXX 
     }

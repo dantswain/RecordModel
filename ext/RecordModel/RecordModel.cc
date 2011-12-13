@@ -62,7 +62,7 @@ static VALUE RecordModel_initialize(VALUE self, VALUE keys, VALUE values)
     offset += RecordModelTypeSize(desc);
   }
   m.keys[i] = 0x00;
-  m.keysize = offset;
+  m._keysize = offset;
 
   for (i = 0; i < RARRAY_LEN(values); ++i)
   {
@@ -87,7 +87,20 @@ static VALUE RecordModel_size(VALUE self)
 
 static void RecordModelInstance__free(void *ptr)
 {
-  free(ptr);
+  RecordModelInstance *mi = (RecordModelInstance*)ptr;
+
+  if (mi)
+  {
+    if (mi->flags & FL_RecordModelInstance_PTR_ALLOCATED)
+    {
+      if (mi->ptr)
+      {
+        free(mi->ptr);
+        mi->ptr = NULL;
+      }
+    }
+    free(mi);
+  }
 }
 
 static VALUE RecordModelInstance__model(VALUE klass)
@@ -95,15 +108,20 @@ static VALUE RecordModelInstance__model(VALUE klass)
   return rb_cvar_get(klass, rb_intern("@@__model"));
 }
 
-static VALUE RecordModelInstance__allocate(VALUE klass)
+static VALUE RecordModelInstance__allocate2(VALUE klass, bool zero)
 {
   VALUE model = RecordModelInstance__model(klass);
   RecordModel &m = RecordModel__get(model);
 
   VALUE obj;
   // XXX: gc!
-  obj = Data_Wrap_Struct(klass, NULL, RecordModelInstance__free, m.create_instance());
+  obj = Data_Wrap_Struct(klass, NULL, RecordModelInstance__free, m.create_instance(zero));
   return obj;
+}
+
+static VALUE RecordModelInstance__allocate(VALUE klass)
+{
+  return RecordModelInstance__allocate2(klass, true);
 }
 
 static RecordModelInstance& RecordModelInstance__get(VALUE self) {
@@ -466,7 +484,7 @@ static VALUE RecordModelInstance_zero(VALUE self)
 
 static VALUE RecordModelInstance_dup(VALUE self)
 {
-  VALUE obj = RecordModelInstance__allocate(rb_obj_class(self));
+  VALUE obj = RecordModelInstance__allocate2(rb_obj_class(self), false);
 
   RecordModelInstance *oldi;
   RecordModelInstance *newi;

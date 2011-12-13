@@ -13,8 +13,17 @@ struct RecordModel;
 struct RecordModelInstance
 {
   RecordModel *model;
+  char *ptr; // points to the data
+  int flags;
 };
 #pragma pack(pop)
+
+//
+// If the RecordModelInstance.ptr is allocated
+// and as such has to be freed. Else it points
+// to memory which will be freed otherwise.
+//
+#define FL_RecordModelInstance_PTR_ALLOCATED 1L
 
 #define RMT_UINT8   0x0001
 #define RMT_UINT16  0x0002
@@ -31,7 +40,7 @@ struct RecordModelInstance
 struct RecordModel
 {
   uint32_t size;
-  uint32_t keysize;
+  uint32_t _keysize;
 
   uint32_t *keys;
   uint32_t *values;
@@ -43,7 +52,20 @@ struct RecordModel
     keys = NULL;
     values = NULL;
     size = 0;
-    keysize = 0;
+    _keysize = 0;
+  }
+
+  uint32_t keysize() const { return _keysize; }
+  uint32_t datasize() const { return size - _keysize; } 
+
+  const char *keyptr(const RecordModelInstance *mi) const
+  {
+    return (const char*)mi->ptr;
+  }
+
+  const char *dataptr(const RecordModelInstance *mi) const
+  {
+    return (const char*)(mi->ptr + keysize());
   }
 
   ~RecordModel()
@@ -55,14 +77,20 @@ struct RecordModel
     }
   }
 
-  RecordModelInstance *dup_instance(const RecordModelInstance *copy)
+  RecordModelInstance *create_instance(bool zero=true)
   {
-    size_t sz = this->size + sizeof(RecordModelInstance);
+    uint32_t sz = this->size + sizeof(RecordModelInstance);
     RecordModelInstance *mi = (RecordModelInstance*) malloc(sz);
     if (mi)
     {
-      memcpy(mi, copy, sz);
-      assert(mi->model == this);
+      mi->model = this;
+      mi->ptr = ((char*)mi) + sizeof(RecordModelInstance);
+      mi->flags = 0;
+
+      if (zero)
+      {
+        zero_instance(mi);
+      }
     }
     return mi;
   }
@@ -71,33 +99,28 @@ struct RecordModel
   {
     assert(dst->model == this);
     assert(src->model == this);
-    memcpy(dst, src, this->size + sizeof(RecordModelInstance));
+    memcpy(dst->ptr, src->ptr, this->size);
     assert(dst->model == this);
   }
- 
-  RecordModelInstance *create_instance()
+
+  RecordModelInstance *dup_instance(const RecordModelInstance *copy)
   {
-    uint32_t sz = this->size + sizeof(RecordModelInstance);
-    RecordModelInstance *mi = (RecordModelInstance*) malloc(sz);
+    RecordModelInstance *mi = create_instance(false);
     if (mi)
     {
-      bzero(mi, sz);
-      mi->model = this;
+      copy_instance(mi, copy);
     }
     return mi;
   }
 
   void zero_instance(RecordModelInstance *mi)
   {
-    if (mi)
-    {
-      bzero(((char*)mi) + sizeof(RecordModelInstance), this->size);
-    }
+    bzero(mi->ptr, this->size);
   }
 
   inline const char *ptr_to_field(const RecordModelInstance *i, uint32_t desc) const
   {
-    return ((const char*)i) + sizeof(RecordModelInstance) + RecordModelOffset(desc);
+    return (const char*)(i->ptr + RecordModelOffset(desc));
   }
 
   /*
@@ -114,25 +137,28 @@ struct RecordModel
     {
       uint32_t desc = *v;
 
+      const char *ptr_ra = ptr_to_field(ra, desc);
+      const char *ptr_rb = ptr_to_field(rb, desc);
+
       if (RecordModelType(desc) == RMT_UINT64)
       {
-        *((uint64_t*)ptr_to_field(ra, desc)) += *((const uint64_t*)ptr_to_field(rb, desc));
+        *((uint64_t*)ptr_ra) += *((const uint64_t*)ptr_rb);
       }
       else if (RecordModelType(desc) == RMT_UINT32)
       {
-        *((uint32_t*)ptr_to_field(ra, desc)) += *((const uint32_t*)ptr_to_field(rb, desc));
+        *((uint32_t*)ptr_ra) += *((const uint32_t*)ptr_rb);
       }
       else if (RecordModelType(desc) == RMT_DOUBLE)
       {
-        *((double*)ptr_to_field(ra, desc)) += *((const double*)ptr_to_field(rb, desc));
+        *((double*)ptr_ra) += *((const double*)ptr_rb);
       }
       else if (RecordModelType(desc) == RMT_UINT16)
       {
-        *((uint16_t*)ptr_to_field(ra, desc)) += *((const uint16_t*)ptr_to_field(rb, desc));
+        *((uint16_t*)ptr_ra) += *((const uint16_t*)ptr_rb);
       }
       else if (RecordModelType(desc) == RMT_UINT8)
       {
-        *((uint8_t*)ptr_to_field(ra, desc)) += *((const uint8_t*)ptr_to_field(rb, desc));
+        *((uint8_t*)ptr_ra) += *((const uint8_t*)ptr_rb);
       }
       else
       {
@@ -225,13 +251,12 @@ struct RecordModel
   int compare_keys(const RecordModelInstance *a, const RecordModelInstance *b)
   {
     assert(a->model == this && b->model == this);
-    return compare_keys(((char*)a) + sizeof(RecordModelInstance), this->keysize,
-                        ((char*)b) + sizeof(RecordModelInstance), this->keysize);
+    return compare_keys(this->keyptr(a), this->keysize(), this->keyptr(b), this->keysize());
   }
 
   int compare_keys(const char *akbuf, size_t aksiz, const char *bkbuf, size_t bksiz) const
   {
-    assert(aksiz == bksiz && aksiz == this->keysize);
+    assert(aksiz == bksiz && aksiz == this->keysize());
 
     for (uint32_t *k = this->keys; *k != 0; ++k)
     {
