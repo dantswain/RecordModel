@@ -206,7 +206,7 @@ static VALUE RecordDB_put_bulk(VALUE self, VALUE arr)
   Params p;
 
   Data_Get_Struct(self, RecordDB, p.mdb);
-  Data_Get_Struct(self, RecordModelInstanceArray, p.arr);
+  Data_Get_Struct(arr, RecordModelInstanceArray, p.arr);
 
   return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }
