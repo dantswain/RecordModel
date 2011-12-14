@@ -206,9 +206,36 @@ static VALUE RecordDB_put_bulk(VALUE self, VALUE arr)
   return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }
 
+int64_t bin_search(int64_t l, int64_t r, const char *cmp, RecordDB *mdb, RecordModel *model, uint64_t *slice)
+{
+  while (l < r)
+  {
+    int64_t m = l + (r - l) / 2; 
+
+    assert(l < r);
+    assert(l >= 0);
+    assert(m >= 0);
+    //assert(r < len);
+    //assert(m < len);
+
+    if (model->compare_keys((const char*)mdb->record_n(slice[m]), cmp) < 0)
+    {
+      l = m + 1;
+    }
+    else
+    {
+      r = m - 1;
+    }
+  }
+
+  return l;
+}
+
+ 
 static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
 {
-  RecordDB &mdb = RecordDB__get(self);
+  RecordDB *mdb;
+  Data_Get_Struct(self, RecordDB, mdb);
 
   RecordModelInstance *from;
   Data_Get_Struct(_from, RecordModelInstance, from);
@@ -222,67 +249,57 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
   assert(from->model == to->model);
   assert(from->model == current->model);
 
-  RecordModel &model = *(from->model);
+  RecordModel *model = from->model;
 
-  model.copy_instance(current, from);
+  model->copy_instance(current, from);
 
-  uint64_t *slice = (uint64_t*) mdb.array_ptr_beg;
-  uint64_t *end_slice = (uint64_t*) mdb.current_array_ptr;
+  uint64_t *slice = (uint64_t*) mdb->array_ptr_beg;
+  uint64_t *end_slice = (uint64_t*) mdb->current_array_ptr;
 
   while (slice < end_slice) 
   {
     uint64_t len = *slice;
     ++slice;
 
-    /* binary_search */
-    int64_t l = 0;
-    int64_t r = len - 1;
-
-    const char *cmp_from_ptr = (const char*)model.keyptr(from);
-
-    while (l < r)
+    if (len == 0)
     {
-      int64_t m = l + (r - l) / 2; 
-
-      assert(l < r);
-      assert(l >= 0);
-      assert(m >= 0);
-      assert(r < len);
-      assert(m < len);
-
-      if (model.compare_keys((const char*)mdb.record_n(slice[m]), cmp_from_ptr) < 0)
-      {
-        l = m + 1;
-      }
-      else
-      {
-        r = m - 1;
-      }
+      continue;
     }
 
-    int64_t i = l;
-
-    /*for (i = 0; i < len; ++i) 
+    // no overlap at all -> skip slice
+    if (model->compare_keys((const char*)mdb->record_n(slice[0]), (const char*)model->keyptr(to)) > 0 || 
+        model->compare_keys((const char*)mdb->record_n(slice[len-1]), (const char*)model->keyptr(from)) < 0)
     {
-      if (model.compare_keys((const char*)mdb.record_n(slice[i]), (const char*)model.keyptr(from)) >= 0)
-        break;
-    }*/
+      slice += len;
+      continue;
+    }
+
+    /* binary_search */
+
+    uint64_t i = bin_search(0, (int64_t)len - 1, (const char*)model->keyptr(from), mdb, model, slice);
 
     // linear scan from current position (i)
-    for (; i < len; ++i)
+    while (i < len)
     {
-      const char *rec = (const char*)mdb.record_n(slice[i]);
-      if (model.compare_keys(rec, (const char*)model.keyptr(to)) > 0)
+      const char *rec = (const char*)mdb->record_n(slice[i]);
+      if (model->compare_keys(rec, (const char*)model->keyptr(to)) > 0)
       {
         break;
       }
       else 
       {
         // XXX: use special current value and just assign ptr 
-        memcpy(model.keyptr(current), rec, model.size);
-        if (model.keys_in_range(current, from, to))
+        memcpy(model->keyptr(current), rec, model->size);
+        if (model->keys_in_range(current, from, to))
         {
           rb_yield(_current); // XXX 
+          ++i;
+        }
+        else
+        {
+          // seek forward to next possible key, then bin search to it 
+          model->advance_keys_in_range(current, from, to);
+          i = bin_search(i+1, (int64_t)len - 1, (const char*)model->keyptr(current), mdb, model, slice);
         }
       }
     }
