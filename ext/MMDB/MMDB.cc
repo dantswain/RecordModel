@@ -298,7 +298,8 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
         else
         {
           // seek forward to next possible key, then bin search to it 
-          model->advance_keys_in_range(current, from, to);
+          //model->advance_keys_in_range(current, from, to);
+          model->copy_instance(current, from);
           i = bin_search(i+1, (int64_t)len - 1, (const char*)model->keyptr(current), mdb, model, slice);
         }
       }
