@@ -206,6 +206,69 @@ static VALUE RecordDB_put_bulk(VALUE self, VALUE arr)
   return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }
 
+static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
+{
+  RecordDB &mdb = RecordDB__get(self);
+
+  RecordModelInstance *from;
+  Data_Get_Struct(_from, RecordModelInstance, from);
+
+  RecordModelInstance *to;
+  Data_Get_Struct(_to, RecordModelInstance, to);
+
+  RecordModelInstance *current;
+  Data_Get_Struct(_current, RecordModelInstance, current);
+
+  assert(from->model == to->model);
+  assert(from->model == current->model);
+
+  RecordModel &model = *(from->model);
+
+  model.copy_instance(current, from);
+
+  uint64_t *slice = (uint64_t*) mdb.array_ptr_beg;
+  uint64_t *end_slice = (uint64_t*) mdb.current_array_ptr;
+
+  while (slice < end_slice) 
+  {
+    uint64_t len = slice[0];
+
+    // seek: TODO: binary search
+    uint64_t i;
+    for (i = 1; i <= len; ++i) 
+    {
+      if (model.compare_keys((const char*)mdb.record_n(slice[i]), (const char*)model.keyptr(from)) >= 0)
+        break;
+    }
+
+    // linear scan
+    for (; i <= len; ++i)
+    {
+      const char *rec = (const char*)mdb.record_n(slice[i]);
+      if (model.compare_keys(rec, (const char*)model.keyptr(to)) > 0)
+      {
+        break;
+      }
+      else 
+      {
+        // XXX: use special current value and just assign ptr 
+        memcpy(model.keyptr(current), rec, model.size);
+        if (model.keys_in_range(current, from, to))
+        {
+          rb_yield(_current); // XXX 
+        }
+      }
+    }
+
+    // go to next slice
+    slice += len + 1;
+
+  } /* while */
+
+  return Qnil;
+}
+
+
 extern "C"
 void Init_RecordModelMMDBExt()
 {
@@ -213,4 +276,5 @@ void Init_RecordModelMMDBExt()
   rb_define_singleton_method(cKCDB, "open", (VALUE (*)(...)) RecordDB__open, 3);
   rb_define_method(cKCDB, "close", (VALUE (*)(...)) RecordDB_close, 0);
   rb_define_method(cKCDB, "put_bulk", (VALUE (*)(...)) RecordDB_put_bulk, 1);
+  rb_define_method(cKCDB, "query", (VALUE (*)(...)) RecordDB_query, 3);
 }
