@@ -257,15 +257,15 @@ struct RecordModel
         const uint8_t *lp = (const uint8_t*)ptr_to_field(l, desc);
         const uint8_t *rp = (const uint8_t*)ptr_to_field(r, desc);
         // XXX: Check correctness
-        for (int i=0; i < RecordModelTypeSize(desc); ++i)
+        for (int k=0; k < RecordModelTypeSize(desc); ++k)
         {
-          if (cp[i] < lp[i]) return i;
-          if (cp[i] > lp[i]) break;
+          if (cp[k] < lp[k]) return i;
+          if (cp[k] > lp[k]) break;
         }
-        for (int i=0; i < RecordModelTypeSize(desc); ++i)
+        for (int k=0; k < RecordModelTypeSize(desc); ++k)
         {
-          if (cp[i] > rp[i]) return i;
-          if (cp[i] < rp[i]) break;
+          if (cp[k] > rp[k]) return i;
+          if (cp[k] < rp[k]) break;
         }
       }
       else if (RecordModelType(desc) == RMT_DOUBLE)
