@@ -231,18 +231,45 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
 
   while (slice < end_slice) 
   {
-    uint64_t len = slice[0];
+    uint64_t len = *slice;
+    ++slice;
 
-    // seek: TODO: binary search
-    uint64_t i;
-    for (i = 1; i <= len; ++i) 
+    /* binary_search */
+    int64_t l = 0;
+    int64_t r = len - 1;
+
+    const char *cmp_from_ptr = (const char*)model.keyptr(from);
+
+    while (l < r)
+    {
+      int64_t m = l + (r - l) / 2; 
+
+      assert(l < r);
+      assert(l >= 0);
+      assert(m >= 0);
+      assert(r < len);
+      assert(m < len);
+
+      if (model.compare_keys((const char*)mdb.record_n(slice[m]), cmp_from_ptr) < 0)
+      {
+        l = m + 1;
+      }
+      else
+      {
+        r = m - 1;
+      }
+    }
+
+    int64_t i = l;
+
+    /*for (i = 0; i < len; ++i) 
     {
       if (model.compare_keys((const char*)mdb.record_n(slice[i]), (const char*)model.keyptr(from)) >= 0)
         break;
-    }
+    }*/
 
-    // linear scan
-    for (; i <= len; ++i)
+    // linear scan from current position (i)
+    for (; i < len; ++i)
     {
       const char *rec = (const char*)mdb.record_n(slice[i]);
       if (model.compare_keys(rec, (const char*)model.keyptr(to)) > 0)
@@ -260,8 +287,8 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
       }
     }
 
-    // go to next slice
-    slice += len + 1;
+    // jump to next slice
+    slice += len;
 
   } /* while */
 
