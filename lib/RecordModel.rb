@@ -208,3 +208,81 @@ class RecordModelInstance
   end
 
 end
+
+class RecordModel::LineParser
+  require 'thread'
+
+  def initialize(db, item_class, line_parse_descr)  
+    @db = db
+    @item_class = item_class
+    @line_parse_descr = line_parse_descr
+  end
+
+  def fixup_item(error, item)
+    raise if error and error != -1
+    return true
+  end
+
+  def import(io, array_sz=2**22, report_failures=false, report_progress_every=1_000_000, &block)
+    line_parse_descr = @line_parse_descr
+
+    inq, outq = Queue.new, Queue.new
+    thread = start_db_thread(inq, outq) 
+
+    # two arrays so that the log line parser and DB insert can work in parallel
+    2.times { outq << @item_class.make_array(array_sz) }
+
+    item = @item_class.new
+
+    arr = outq.pop
+    lines_read = 0
+    lines_ok = 0
+
+    while line = io.gets
+      lines_read += 1
+      begin
+        item.zero!
+        error = item.parse_line(line, line_parse_descr)
+        arr << item if fixup_item(error, item)
+        if arr.full?
+          inq << arr 
+	  arr = outq.pop
+        end
+	lines_ok += 1
+      rescue 
+        if report_failures and block
+	  block.call(:failure, $!, line)
+        end
+      end # begin .. rescue
+      if (lines % report_progress_every) == 0 and block
+        block.call(:progress, lines_read, lines_ok)
+      end
+    end # while
+
+    inq << arr
+    inq << :end
+
+    thread.join
+
+    return lines_read, lines_ok
+  end
+
+  protected
+
+  def start_db_thread(inq, outq)
+    Thread.new {
+      loop do
+        packet = inq.pop
+        break if packet == :end
+
+        begin
+          @db.put_bulk(packet)
+        rescue
+          p $!
+        end
+        packet.reset
+        outq << packet
+      end
+    }
+  end
+end
