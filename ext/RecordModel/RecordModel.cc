@@ -674,7 +674,7 @@ static VALUE RecordModelInstanceArray_push(VALUE self, VALUE _mi)
   if (m != mi->model)
     rb_raise(rb_eArgError, "Model mismatch");
 
-  if (mia->full() && !mia->expand())
+  if (mia->full() && !mia->expand(m->size))
   {
     rb_raise(rb_eArgError, "Failed to expand array");
   }

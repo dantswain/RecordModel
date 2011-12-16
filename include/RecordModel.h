@@ -56,7 +56,7 @@ struct RecordModelInstanceArray
       return false;
 
     _capacity = new_capacity;
-    ptr = new_ptr;
+    ptr = (char*)new_ptr;
     return true;
   }
 
