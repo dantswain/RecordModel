@@ -182,7 +182,7 @@ class RecordModelInstance
     from, to = build_query(query)
     p from, to
     item = new()
-    db.query(from, to, item)
+    db.query(from, to, item, &block)
   end
 
 end
