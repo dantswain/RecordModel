@@ -126,6 +126,16 @@ class RecordModelInstanceArray
   def each(instance=nil, &block)
     old_each(instance || @model_klass.new, &block)
   end
+
+  def inspect
+    [self.class, to_a]
+  end
+
+  def to_a
+    a = []
+    each {|i| a << i.dup}
+    a
+  end
 end
 
 class RecordModelInstance
