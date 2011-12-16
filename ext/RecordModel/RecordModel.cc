@@ -359,6 +359,11 @@ uint64_t conv_integer(uint32_t fmt, const char *s, const char *e)
   return v;
 }
 
+/*
+ * Return Qnil on success, or an Integer.
+ * If an Integer is returned, it is the index into _desc_arr which could not parsed due to EOL (end of line).
+ * Returns -1 if every item could be parsed but there are still some characters left in the string.
+ */
 static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc_arr)
 {
   RecordModelInstance *mi;
@@ -371,8 +376,7 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
   const char *next = RSTRING_PTR(_line); 
   const char *tok = NULL;
 
-  int i;
-  for (i=0; i < RARRAY_LEN(_desc_arr); ++i)
+  for (int i=0; i < RARRAY_LEN(_desc_arr); ++i)
   {
     uint64_t item = NUM2ULONG(RARRAY_PTR(_desc_arr)[i]);
     uint32_t desc = item & 0xFFFFFFFF;
@@ -383,7 +387,7 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
 
     tok = parse_token(&next);
     if (tok == next)
-      return UINT2NUM(i);
+      return UINT2NUM(i); // premature end
 
     if (RecordModelType(desc) == RMT_UINT64)
     {
@@ -432,7 +436,7 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
   if (tok == next)
     return Qnil;
   else
-    return UINT2NUM(i); // means, has additional item (as i >= size)
+    return INT2NUM(-1); // means, has additional items
 }
 
 static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
