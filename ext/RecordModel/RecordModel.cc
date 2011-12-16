@@ -605,7 +605,7 @@ static VALUE RecordModelInstanceArray__allocate(VALUE klass)
   return obj;
 }
 
-static VALUE RecordModelInstanceArray_initialize(VALUE self, VALUE modelklass, VALUE _n)
+static VALUE RecordModelInstanceArray_initialize(VALUE self, VALUE modelklass, VALUE _n, VALUE _expandable)
 {
   RecordModelInstanceArray *mia;
   RecordModel *m;
@@ -628,6 +628,8 @@ static VALUE RecordModelInstanceArray_initialize(VALUE self, VALUE modelklass, V
     rb_raise(rb_eArgError, "Invalid size of Array");
     return Qnil;
   }
+
+  mia->expandable = RTEST(_expandable);
 
   mia->ptr = (char*)malloc(m->size * mia->_capacity);
   if (!mia->ptr)
@@ -654,6 +656,9 @@ static VALUE RecordModelInstanceArray_is_full(VALUE self)
   RecordModelInstanceArray *mia;
   Data_Get_Struct(self, RecordModelInstanceArray, mia);
 
+  if (mia->expandable)
+    rb_raise(rb_eArgError, "Called #full? for expandable RecordModelInstanceArray"); 
+
   return mia->full() ? Qtrue : Qfalse;
 }
 
@@ -669,8 +674,11 @@ static VALUE RecordModelInstanceArray_push(VALUE self, VALUE _mi)
   if (m != mi->model)
     rb_raise(rb_eArgError, "Model mismatch");
 
-  if (mia->full())
-    rb_raise(rb_eArgError, "Array is full");
+  if (mia->full() && !mia->expand())
+  {
+    rb_raise(rb_eArgError, "Failed to expand array");
+  }
+  assert(!mia->full());
 
   memcpy(m->elemptr(mia, mia->_entries), mi->ptr, m->size);
 
@@ -711,7 +719,7 @@ void Init_RecordModelExt()
 
   cRecordModelInstanceArray = rb_define_class("RecordModelInstanceArray", rb_cObject);
   rb_define_alloc_func(cRecordModelInstanceArray, RecordModelInstanceArray__allocate);
-  rb_define_method(cRecordModelInstanceArray, "initialize", (VALUE (*)(...)) RecordModelInstanceArray_initialize, 2);
+  rb_define_method(cRecordModelInstanceArray, "initialize", (VALUE (*)(...)) RecordModelInstanceArray_initialize, 3);
   rb_define_method(cRecordModelInstanceArray, "empty?", (VALUE (*)(...)) RecordModelInstanceArray_is_empty, 0);
   rb_define_method(cRecordModelInstanceArray, "full?", (VALUE (*)(...)) RecordModelInstanceArray_is_full, 0);
   rb_define_method(cRecordModelInstanceArray, "<<", (VALUE (*)(...)) RecordModelInstanceArray_push, 1);

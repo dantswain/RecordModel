@@ -24,6 +24,7 @@ struct RecordModelInstanceArray
   char *ptr;
   size_t _capacity;
   size_t _entries;
+  bool expandable;
 
   size_t entries() const { return _entries; }
 
@@ -33,6 +34,7 @@ struct RecordModelInstanceArray
     ptr = NULL;
     _capacity = 0;
     _entries = 0;
+    expandable = false;
   }
 
   ~RecordModelInstanceArray()
@@ -42,6 +44,20 @@ struct RecordModelInstanceArray
       free(ptr);
       ptr = NULL;
     }
+  }
+
+  bool expand(size_t model_size)
+  {
+    if (!expandable) return false;
+    size_t new_capacity = _capacity * 2;
+    if (new_capacity < 8) new_capacity = 8;
+    void *new_ptr = realloc(ptr, model_size * new_capacity); 
+    if (new_ptr == NULL)
+      return false;
+
+    _capacity = new_capacity;
+    ptr = new_ptr;
+    return true;
   }
 
   bool empty() const { return (_entries == 0); }

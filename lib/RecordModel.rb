@@ -113,6 +113,10 @@ class RecordModel
 end
 
 class RecordModelInstanceArray
+  alias old_initialize initialize
+  def initialize(model_klass, n=16, expandable=true)
+    old_initialize(model_klass, n, expandable)
+  end
 end
 
 class RecordModelInstance
@@ -140,8 +144,8 @@ class RecordModelInstance
     [self.class, keys_to_hash, values_to_hash]
   end
 
-  def self.make_array(n)
-    RecordModelInstanceArray.new(self, n)
+  def self.make_array(n, expandable=true)
+    RecordModelInstanceArray.new(self, n, expandable)
   end
 
   def self.__info_keys
@@ -230,7 +234,7 @@ class RecordModel::LineParser
     thread = start_db_thread(inq, outq) 
 
     # two arrays so that the log line parser and DB insert can work in parallel
-    2.times { outq << @item_class.make_array(array_sz) }
+    2.times { outq << @item_class.make_array(array_sz, false) }
 
     item = @item_class.new
 
