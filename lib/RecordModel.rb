@@ -243,12 +243,14 @@ class RecordModel::LineParser
       begin
         item.zero!
         error = item.parse_line(line, line_parse_descr)
-        arr << item if fixup_item(error, item)
+        if fixup_item(error, item)
+          arr << item
+          lines_ok += 1
+        end
         if arr.full?
           inq << arr 
 	  arr = outq.pop
         end
-	lines_ok += 1
       rescue 
         if report_failures and block
 	  block.call(:failure, [$!, line])
