@@ -202,6 +202,17 @@ class RecordModelInstance
     db.query(from, to, item, &block)
   end
 
+  def self.query_into_db(db, n=1024, query={})
+    from, to = build_query(query)
+    item = new()
+    itemarr = make_array(n)
+    if db.query_into(from, to, item, itemarr)
+      itemarr
+    else
+      raise "query_into failed"
+    end
+  end
+
   #
   # Example usage: def_parser_descr(:uid, :campaign_id, nil, [:timestamp, :fixint, 3])
   #

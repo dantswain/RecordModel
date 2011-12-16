@@ -280,7 +280,7 @@ static VALUE RecordDB_put_bulk(VALUE self, VALUE arr)
   return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }
 
-int64_t bin_search(int64_t l, int64_t r, const char *key, RecordDB *mdb, RecordModel *model, uint64_t *slice)
+static int64_t bin_search(int64_t l, int64_t r, const char *key, RecordDB *mdb, RecordModel *model, uint64_t *slice)
 {
   int64_t m;
   int c;
@@ -335,27 +335,44 @@ int64_t bin_search(int64_t l, int64_t r, const char *key, RecordDB *mdb, RecordM
   return l;
 }
 
- 
-// TODO: use rb_thread_blocking_region  
-static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
+struct yield_iter_data
 {
-  RecordDB *mdb;
-  Data_Get_Struct(self, RecordDB, mdb);
+  VALUE _current;
+};
 
-  RecordModelInstance *from;
-  Data_Get_Struct(_from, RecordModelInstance, from);
+static bool yield_iter(RecordModelInstance *current, void *data)
+{
+  rb_yield(((yield_iter_data*)data)->_current);
+  return true;
+}
 
-  RecordModelInstance *to;
-  Data_Get_Struct(_to, RecordModelInstance, to);
+struct array_fill_iter_data
+{
+  RecordModelInstanceArray *arr;
+};
 
-  RecordModelInstance *current;
-  Data_Get_Struct(_current, RecordModelInstance, current);
+static bool array_fill_iter(RecordModelInstance *current, void *data)
+{
+  array_fill_iter_data *d = (array_fill_iter_data*)data;
+  RecordModel *m = current->model;
 
-  assert(from->model == to->model);
-  assert(from->model == current->model);
+  if (d->arr->full() && !d->arr->expand(m->size))
+  {
+    return false;
+    //rb_raise(rb_eArgError, "Failed to expand array");
+  }
+  assert(!d->arr->full());
 
-  RecordModel *model = from->model;
+  memcpy(m->elemptr(d->arr, d->arr->_entries), current->ptr, m->size);
 
+  d->arr->_entries += 1;
+ 
+  return true;
+}
+
+static VALUE query_internal(RecordDB *mdb, RecordModel *model, const RecordModelInstance *from, const RecordModelInstance *to, RecordModelInstance *current,
+  bool (*iterator)(RecordModelInstance*, void*), void *data)
+{
   uint64_t *slice = mdb->slices_beg;
   uint64_t *end_slice = mdb->slices_beg + mdb->header->slices_i;
 
@@ -389,7 +406,10 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
       if (kp == 0)
       {
         memcpy(model->dataptr(current), rec+model->keysize(), model->datasize());
-        rb_yield(_current);
+        if (iterator)
+        {
+          if (!iterator(current, data)) return Qfalse;
+        }
         ++i;
       }
       else
@@ -433,16 +453,76 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
 
   } /* while */
 
-  return Qnil;
+  return Qtrue;
+}
+ 
+static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
+{
+  RecordDB *mdb;
+  Data_Get_Struct(self, RecordDB, mdb);
+
+  RecordModelInstance *from;
+  Data_Get_Struct(_from, RecordModelInstance, from);
+
+  RecordModelInstance *to;
+  Data_Get_Struct(_to, RecordModelInstance, to);
+
+  RecordModelInstance *current;
+  Data_Get_Struct(_current, RecordModelInstance, current);
+
+  assert(from->model == to->model);
+  assert(from->model == current->model);
+
+  struct yield_iter_data d;
+  d._current = _current;
+
+  return query_internal(mdb, from->model, from, to, current, yield_iter, &d);
 }
 
+struct Params_query_into
+{
+  RecordDB *mdb;
+  RecordModelInstance *from;
+  RecordModelInstance *to;
+  RecordModelInstance *current;
+  RecordModelInstanceArray *mia;
+};
+
+static VALUE query_into(void *a)
+{
+  Params_query_into *p = (Params_query_into*)a;
+  struct array_fill_iter_data d;
+  d.arr = p->mia;
+  return query_internal(p->mdb, p->from->model, p->from, p->to, p->current, array_fill_iter, &d);
+}
+
+static VALUE RecordDB_query_into(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE _mia)
+{
+  Params_query_into p;
+  Data_Get_Struct(self, RecordDB, p.mdb);
+
+  Data_Get_Struct(_from, RecordModelInstance, p.from);
+
+  Data_Get_Struct(_to, RecordModelInstance, p.to);
+
+  Data_Get_Struct(_current, RecordModelInstance, p.current);
+
+  Data_Get_Struct(_mia, RecordModelInstanceArray, p.mia);
+
+  assert(p.mia->model == p.from->model);
+  assert(p.from->model == p.to->model);
+  assert(p.from->model == p.current->model);
+
+  return rb_thread_blocking_region(query_into, &p, NULL, NULL);
+}
 
 extern "C"
 void Init_RecordModelMMDBExt()
 {
-  VALUE cKCDB = rb_define_class("RecordModelMMDB", rb_cObject);
-  rb_define_singleton_method(cKCDB, "open", (VALUE (*)(...)) RecordDB__open, 4);
-  rb_define_method(cKCDB, "close", (VALUE (*)(...)) RecordDB_close, 0);
-  rb_define_method(cKCDB, "put_bulk", (VALUE (*)(...)) RecordDB_put_bulk, 1);
-  rb_define_method(cKCDB, "query", (VALUE (*)(...)) RecordDB_query, 3);
+  VALUE cMMDB = rb_define_class("RecordModelMMDB", rb_cObject);
+  rb_define_singleton_method(cMMDB, "open", (VALUE (*)(...)) RecordDB__open, 4);
+  rb_define_method(cMMDB, "close", (VALUE (*)(...)) RecordDB_close, 0);
+  rb_define_method(cMMDB, "put_bulk", (VALUE (*)(...)) RecordDB_put_bulk, 1);
+  rb_define_method(cMMDB, "query", (VALUE (*)(...)) RecordDB_query, 3);
+  rb_define_method(cMMDB, "query_into", (VALUE (*)(...)) RecordDB_query_into, 4);
 }
