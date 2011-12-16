@@ -230,26 +230,26 @@ struct RecordModel
       if (RecordModelType(desc) == RMT_UINT64)
       {
         uint64_t cv = *((uint64_t*)ptr_to_field(c, desc));
-        if (cv < *((uint64_t*)ptr_to_field(l, desc))) return i;
-        if (cv > *((uint64_t*)ptr_to_field(r, desc))) return i;
+        if (cv < *((uint64_t*)ptr_to_field(l, desc))) return -i-1;
+        if (cv > *((uint64_t*)ptr_to_field(r, desc))) return i+1;
       }
       else if (RecordModelType(desc) == RMT_UINT32)
       {
         uint32_t cv = *((uint32_t*)ptr_to_field(c, desc));
-        if (cv < *((uint32_t*)ptr_to_field(l, desc))) return i;
-        if (cv > *((uint32_t*)ptr_to_field(r, desc))) return i;
+        if (cv < *((uint32_t*)ptr_to_field(l, desc))) return -i-1;
+        if (cv > *((uint32_t*)ptr_to_field(r, desc))) return i+1;
       }
       else if (RecordModelType(desc) == RMT_UINT16)
       {
         uint16_t cv = *((uint16_t*)ptr_to_field(c, desc));
-        if (cv < *((uint16_t*)ptr_to_field(l, desc))) return i;
-        if (cv > *((uint16_t*)ptr_to_field(r, desc))) return i;
+        if (cv < *((uint16_t*)ptr_to_field(l, desc))) return -i-1;
+        if (cv > *((uint16_t*)ptr_to_field(r, desc))) return i+1;
       }
       else if (RecordModelType(desc) == RMT_UINT8)
       {
         uint8_t cv = *((uint8_t*)ptr_to_field(c, desc));
-        if (cv < *((uint8_t*)ptr_to_field(l, desc))) return i;
-        if (cv > *((uint8_t*)ptr_to_field(r, desc))) return i;
+        if (cv < *((uint8_t*)ptr_to_field(l, desc))) return -i-1;
+        if (cv > *((uint8_t*)ptr_to_field(r, desc))) return i+1;
       }
       else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
       {
@@ -259,12 +259,12 @@ struct RecordModel
         // XXX: Check correctness
         for (int k=0; k < RecordModelTypeSize(desc); ++k)
         {
-          if (cp[k] < lp[k]) return i;
+          if (cp[k] < lp[k]) return -i-1;
           if (cp[k] > lp[k]) break;
         }
         for (int k=0; k < RecordModelTypeSize(desc); ++k)
         {
-          if (cp[k] > rp[k]) return i;
+          if (cp[k] > rp[k]) return i+1;
           if (cp[k] < rp[k]) break;
         }
       }
@@ -272,15 +272,15 @@ struct RecordModel
       {
         // XXX: Rarely used as keys!
         double cv = *((double*)ptr_to_field(c, desc));
-        if (cv < *((double*)ptr_to_field(l, desc))) return i;
-        if (cv > *((double*)ptr_to_field(r, desc))) return i;
+        if (cv < *((double*)ptr_to_field(l, desc))) return -i-1;
+        if (cv > *((double*)ptr_to_field(r, desc))) return i+1;
       }
       else
       {
         assert(false);
       }
     }
-    return -1;
+    return 0;
   }
 
   /*
@@ -288,7 +288,7 @@ struct RecordModel
    */
   bool keys_in_range(const RecordModelInstance *c, const RecordModelInstance *l, const RecordModelInstance *r)
   {
-    return (keys_in_range_pos(c, l, r) < 0);
+    return (keys_in_range_pos(c, l, r) == 0);
   }
 
   void copy_keys(RecordModelInstance *to, const RecordModelInstance *from, int i)
@@ -316,11 +316,11 @@ struct RecordModel
       }
       else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
       {
-        memcpy((char*)ptr_to_field(to, desc), (char*)ptr_to_field(from, desc), RecordModelTypeSize(desc));
+        memcpy((char*)ptr_to_field(to, desc), (const char*)ptr_to_field(from, desc), RecordModelTypeSize(desc));
       }
       else if (RecordModelType(desc) == RMT_DOUBLE)
       {
-        *((double*)ptr_to_field(to, desc)) = *((const double*)ptr_to_field(from, desc)); 
+        *((double*)ptr_to_field(to, desc)) = *((const double*)ptr_to_field(from, desc));
       }
       else
       {
@@ -352,7 +352,21 @@ struct RecordModel
     }
     else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
     {
-      // cannot do anything for HEXSTR
+      uint8_t *str = (uint8_t*)ptr_to_field(to, desc);
+      for (int i=RecordModelTypeSize(desc)-1; i >= 0; --i)
+      {
+        if (str[i] < 0xFF)
+	{
+	  // no overflow
+          str[i] += 1;
+	  break;
+        }
+	else
+	{
+	  // overflow
+	  str[i] = 0;
+        }
+      }
     }
     else if (RecordModelType(desc) == RMT_DOUBLE)
     {
@@ -364,15 +378,17 @@ struct RecordModel
     }
   }
 
+  /*
   void advance_keys_in_range(RecordModelInstance *c, const RecordModelInstance *l, const RecordModelInstance *r)
   {
     int i = keys_in_range_pos(c, l, r);
-    if (i > 0)
+    if (i != 0)
     {
       copy_keys(c, l, i);
       increase_key(c, i - 1);
     }
   }
+  */
 
   int compare_keys(const RecordModelInstance *a, const RecordModelInstance *b)
   {
@@ -380,7 +396,7 @@ struct RecordModel
     return compare_keys(this->keyptr(a), this->keysize(), this->keyptr(b), this->keysize());
   }
 
-  int compare_keys(const char *akbuf, const char *bkbuf) const
+  int compare_keys_buf(const char *akbuf, const char *bkbuf) const
   {
     for (uint32_t *k = this->keys; *k != 0; ++k)
     {
@@ -417,7 +433,6 @@ struct RecordModel
           if (a[i] < b[i]) return -1;
           if (a[i] > b[i]) return 1;
         }
-        return 0;
       }
 #if 0
       else if (RecordModelType(desc) == RMT_UINT128)
@@ -460,7 +475,7 @@ struct RecordModel
   int compare_keys(const char *akbuf, size_t aksiz, const char *bkbuf, size_t bksiz) const
   {
     assert(aksiz == bksiz && aksiz == this->keysize());
-    return compare_keys(akbuf, bkbuf);
+    return compare_keys_buf(akbuf, bkbuf);
   }
 
 };

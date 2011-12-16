@@ -14,38 +14,43 @@
 
 #include "ruby.h"
 
+struct ondisk
+{
+  uint64_t max_num_records;
+  uint64_t num_records;
+  uint64_t model_size;
+  uint64_t slices_i; // how many uint64_t in the slices section
+};
+
 struct RecordDB
 {
   VALUE modelklass;
   int db_handle;
   char *ptr;
   size_t length;
-  size_t max_num_records;
+  bool writable;
 
+  ondisk *header;
 
   char *record_ptr;
-  size_t num_records;
-
-  char *array_ptr_beg;
-  char *current_array_ptr;
-
+  uint64_t *slices_beg;
   RecordModel *model;
 
   char* record_n(size_t n)
   {
-    assert(n < max_num_records);
+    assert(n < header->max_num_records);
     return (char*)record_ptr + (n*model->size);
   }
 
   RecordDB()
   {
+    header = NULL;
     db_handle = -1;
     ptr = NULL;
     length = 0;
-    max_num_records = 0;
-    num_records = 0;
     modelklass = Qnil;
     model = NULL;
+    writable = false;
   }
 
   ~RecordDB()
@@ -93,7 +98,7 @@ static RecordDB& RecordDB__get(VALUE self) {
   return *ptr;
 }
 
-static VALUE RecordDB__open(VALUE klass, VALUE path, VALUE modelklass, VALUE max_num_records)
+static VALUE RecordDB__open(VALUE klass, VALUE path, VALUE modelklass, VALUE max_num_records, VALUE writable)
 {
   Check_Type(path, T_STRING);
 
@@ -103,36 +108,75 @@ static VALUE RecordDB__open(VALUE klass, VALUE path, VALUE modelklass, VALUE max
  
   // GC model from ModelDB
   RecordDB *mdb = new RecordDB;
-
-  mdb->max_num_records = NUM2ULONG(max_num_records);
-
-  mdb->db_handle = open(RSTRING_PTR(path), O_RDWR|O_CREAT, S_IRUSR|S_IWUSR);
-  assert(mdb->db_handle != -1);
-
-  mdb->length = (m->size * mdb->max_num_records) + 2*sizeof(uint64_t)*mdb->max_num_records;
-  printf("max_num_records: %ld, length: %ld\n", mdb->max_num_records, mdb->length);
-
-  int err = ftruncate(mdb->db_handle, mdb->length); 
-  assert(err == 0);
-
-  void *mm_ptr = mmap(NULL, mdb->length, PROT_READ|PROT_WRITE, MAP_SHARED /*| MAP_HUGETLB*/, mdb->db_handle, 0);
-  if (mm_ptr == MAP_FAILED)
-  {
-    printf("mmap failed: %s\n", strerror(errno));
-    assert(false);
-  }
-  mdb->ptr = (char*)mm_ptr;
-
   mdb->modelklass = modelklass;
   mdb->model = m;
 
-  mdb->record_ptr = mdb->ptr;
-  mdb->array_ptr_beg = mdb->ptr + m->size * mdb->max_num_records;
-  mdb->current_array_ptr = mdb->array_ptr_beg;
+  mdb->writable = RTEST(writable);
+
+  if (!writable)
+  {
+    mdb->db_handle = open(RSTRING_PTR(path), O_RDONLY);
+    assert(mdb->db_handle != -1);
+
+    struct stat buf;
+    int err = fstat(mdb->db_handle, &buf);
+    assert(err != -1);
+
+    mdb->length = buf.st_size;
+    assert(mdb->length >= sizeof(ondisk));
+
+    void *mm_ptr = mmap(NULL, mdb->length, PROT_READ, MAP_SHARED /*| MAP_HUGETLB*/, mdb->db_handle, 0);
+    if (mm_ptr == MAP_FAILED)
+    {
+      printf("mmap failed: %s\n", strerror(errno));
+      assert(false);
+    }
+    mdb->ptr = (char*)mm_ptr;
+  }
+  else
+  {
+    // create a new database. XXX: open r/w
+    ondisk od_copy;
+    od_copy.model_size = m->size;
+    od_copy.max_num_records = NUM2ULONG(max_num_records);
+    od_copy.num_records = 0;
+    od_copy.slices_i = 0;
+
+    ondisk *od = &od_copy;
+
+    mdb->db_handle = open(RSTRING_PTR(path), O_RDWR|O_CREAT, S_IRUSR|S_IWUSR);
+    assert(mdb->db_handle != -1);
+
+    mdb->length = sizeof(ondisk) + (od->model_size * od->max_num_records) + 2*sizeof(uint64_t)*od->max_num_records;
+    printf("max_num_records: %ld, length: %ld\n", od->max_num_records, mdb->length);
+
+    int err = ftruncate(mdb->db_handle, mdb->length); 
+    assert(err == 0);
+
+    void *mm_ptr = mmap(NULL, mdb->length, PROT_READ|PROT_WRITE, MAP_SHARED /*| MAP_HUGETLB*/, mdb->db_handle, 0);
+    if (mm_ptr == MAP_FAILED)
+    {
+      printf("mmap failed: %s\n", strerror(errno));
+      assert(false);
+    }
+    mdb->ptr = (char*)mm_ptr;
+
+    // XXX: align
+    
+    //
+    // copy od_copy into mmaped memory
+    //
+    mdb->header = (ondisk*)mdb->ptr;
+    memcpy(mdb->header, od, sizeof(ondisk));
+    od = mdb->header;
+  }
+
+  mdb->header = (ondisk*)mdb->ptr;
+  mdb->record_ptr = mdb->ptr + sizeof(ondisk);
+  mdb->slices_beg = (uint64_t*) (mdb->record_ptr + mdb->header->model_size * mdb->header->max_num_records);
 
   VALUE obj;
   obj = Data_Wrap_Struct(klass, RecordDB__mark, RecordDB__free, mdb);
-
   return obj;
 }
 
@@ -156,7 +200,7 @@ struct sorter
  
   bool operator()(uint32_t a, uint32_t b)
   {
-    return (model->compare_keys(model->keyptr(arr, a), model->keyptr(arr, b)) < 0);
+    return (model->compare_keys_buf(model->keyptr(arr, a), model->keyptr(arr, b)) < 0);
   }
 };
 
@@ -165,6 +209,8 @@ static VALUE put_bulk(void *p)
   Params *a = (Params*)p;
   RecordModel *m = a->arr->model;
   RecordDB *mdb = a->mdb;
+
+  assert(mdb->writable);
   
   size_t n = a->arr->entries();
   uint32_t *idxs = (uint32_t*)malloc(sizeof(uint32_t) * n);
@@ -178,15 +224,20 @@ static VALUE put_bulk(void *p)
   s.arr = a->arr; 
   std::sort(idxs, idxs+n, s);
 
-  uint64_t *idx_arr = (uint64_t*)mdb->current_array_ptr;
-  mdb->current_array_ptr += sizeof(uint64_t) * (n+1);
+  for (size_t i = 1; i < n; ++i)
+  {
+    assert(m->compare_keys_buf(m->keyptr(a->arr, idxs[i]), m->keyptr(a->arr, idxs[i-1])) >= 0);
+  }
+
+  uint64_t *idx_arr = &mdb->slices_beg[mdb->header->slices_i];
+  mdb->header->slices_i += n+1;
 
   idx_arr[0] = n;
   idx_arr++;
 
   for (size_t i = 0; i < n; ++i)
   {
-    size_t rno = mdb->num_records++;
+    size_t rno = mdb->header->num_records++;
     idx_arr[i] = rno; 
     memcpy(mdb->record_n(rno), m->elemptr(a->arr, idxs[i]), m->size);
   }
@@ -206,25 +257,55 @@ static VALUE RecordDB_put_bulk(VALUE self, VALUE arr)
   return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }
 
-int64_t bin_search(int64_t l, int64_t r, const char *cmp, RecordDB *mdb, RecordModel *model, uint64_t *slice)
+int64_t bin_search(int64_t l, int64_t r, const char *key, RecordDB *mdb, RecordModel *model, uint64_t *slice)
 {
+  int64_t m;
+  int c;
   while (l < r)
   {
-    int64_t m = l + (r - l) / 2; 
+    m = l + (r - l) / 2; 
 
     assert(l < r);
     assert(l >= 0);
+    assert(r > 0);
     assert(m >= 0);
+    assert(m >= l);
     //assert(r < len);
     //assert(m < len);
 
-    if (model->compare_keys((const char*)mdb->record_n(slice[m]), cmp) < 0)
+    c = model->compare_keys_buf(key, (const char*)mdb->record_n(slice[m]));
+    if (c > 0)
     {
+      // search in right half
       l = m + 1;
+    }
+    else if (c < 0)
+    {
+      // search in left half
+      r = m - 1;
     }
     else
     {
-      r = m - 1;
+      /* We are assuming that there can be multiple equal keys, so we have to scan left to find the first! */
+      assert (c==0);
+
+      for (;;)
+      {
+        if (m == l) break;
+	assert(m > l);
+
+        if (model->compare_keys_buf(key, (const char*)mdb->record_n(slice[m-1])) == 0)
+	{
+	  --m;
+        } 
+	else
+	{
+	  break;
+	}
+      }
+
+      l = m;
+      break;
     }
   }
 
@@ -251,11 +332,10 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
 
   RecordModel *model = from->model;
 
-  model->copy_instance(current, from);
+  uint64_t *slice = mdb->slices_beg;
+  uint64_t *end_slice = mdb->slices_beg + mdb->header->slices_i;
 
-  uint64_t *slice = (uint64_t*) mdb->array_ptr_beg;
-  uint64_t *end_slice = (uint64_t*) mdb->current_array_ptr;
-
+  int n = 0;
   while (slice < end_slice) 
   {
     uint64_t len = *slice;
@@ -265,48 +345,68 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
     {
       continue;
     }
-
-    // no overlap at all -> skip slice
-    if (model->compare_keys((const char*)mdb->record_n(slice[0]), (const char*)model->keyptr(to)) > 0 || 
-        model->compare_keys((const char*)mdb->record_n(slice[len-1]), (const char*)model->keyptr(from)) < 0)
+    // whole slice completely out of bounds -> skip slice
+    if ((model->compare_keys_buf((const char*)model->keyptr(to), (const char*)mdb->record_n(slice[0])) < 0) ||
+        (model->compare_keys_buf((const char*)model->keyptr(from), (const char*)mdb->record_n(slice[len-1])) > 0))
     {
       slice += len;
       continue;
     }
 
     /* binary_search */
-
-    uint64_t i = bin_search(0, (int64_t)len - 1, (const char*)model->keyptr(from), mdb, model, slice);
+    uint64_t i = bin_search(0, len - 1, (const char*)model->keyptr(from), mdb, model, slice);
 
     // linear scan from current position (i)
     while (i < len)
     {
       const char *rec = (const char*)mdb->record_n(slice[i]);
-      if (model->compare_keys(rec, (const char*)model->keyptr(to)) > 0)
+      if (model->compare_keys_buf((const char*)model->keyptr(to), rec) < 0)
       {
         break;
       }
-      else 
+
+      memcpy(model->keyptr(current), rec, model->keysize());
+      int kp = model->keys_in_range_pos(current, from, to);
+      if (kp == 0)
       {
-        // XXX: use special current value and just assign ptr 
-        memcpy(model->keyptr(current), rec, model->size);
-        if (model->keys_in_range(current, from, to))
-        {
-          rb_yield(_current); // XXX 
-          ++i;
-        }
-        else
-        {
-          // seek forward to next possible key, then bin search to it 
-          //model->advance_keys_in_range(current, from, to);
-          model->copy_instance(current, from);
-          i = bin_search(i+1, (int64_t)len - 1, (const char*)model->keyptr(current), mdb, model, slice);
-        }
+        memcpy(model->dataptr(current), rec+model->keysize(), model->datasize());
+        rb_yield(_current);
+        ++i;
+      }
+      else
+      {
+	assert(kp != 0);
+        int keypos = (kp > 0 ? kp : -kp) - 1;
+
+        if (kp < 0)
+	{
+	  // the key at position keypos is < left key
+	  // just move the key forward, but don't advance the previous key 
+	  if (keypos == 0)
+	  {
+	    // this happens when the initial bin search positions to before 'from'
+	    ++i;
+	    continue;
+          }
+	  model->copy_keys(current, from, keypos);
+	}
+	else if (kp > 0)
+	{
+	  // key at keypos moved beyond the to-bound. reset it and all 
+	  // following keys, and increase the previous key.
+	  assert(keypos > 0); // should never happen as then the key is > to
+          model->copy_keys(current, from, keypos);
+          model->increase_key(current, keypos-1); // XXX: check key overflows!
+	}
+
+        /* binary_search forward */
+        i = bin_search(i+1, len - 1, (const char*)model->keyptr(current), mdb, model, slice);
       }
     }
 
     // jump to next slice
     slice += len;
+    n++;
 
   } /* while */
 
@@ -318,7 +418,7 @@ extern "C"
 void Init_RecordModelMMDBExt()
 {
   VALUE cKCDB = rb_define_class("RecordModelMMDB", rb_cObject);
-  rb_define_singleton_method(cKCDB, "open", (VALUE (*)(...)) RecordDB__open, 3);
+  rb_define_singleton_method(cKCDB, "open", (VALUE (*)(...)) RecordDB__open, 4);
   rb_define_method(cKCDB, "close", (VALUE (*)(...)) RecordDB_close, 0);
   rb_define_method(cKCDB, "put_bulk", (VALUE (*)(...)) RecordDB_put_bulk, 1);
   rb_define_method(cKCDB, "query", (VALUE (*)(...)) RecordDB_query, 3);

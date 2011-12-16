@@ -195,7 +195,7 @@ struct sorter
  
   bool operator()(uint32_t a, uint32_t b)
   {
-    return (model->compare_keys(model->keyptr(arr, a), model->keyptr(arr, b)) < 0);
+    return (model->compare_keys_buf(model->keyptr(arr, a), model->keyptr(arr, b)) < 0);
   }
 };
 
