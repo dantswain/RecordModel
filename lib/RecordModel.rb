@@ -180,7 +180,6 @@ class RecordModelInstance
 
   def self.query_db(db, query={}, &block)
     from, to = build_query(query)
-    p from, to
     item = new()
     db.query(from, to, item, &block)
   end
