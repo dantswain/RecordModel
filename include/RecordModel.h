@@ -62,6 +62,14 @@ struct RecordModelInstanceArray
 #define RMT_DOUBLE  0x0108
 #define RMT_HEXSTR  0x0200
 
+/*
+ * Record Model description specifier
+ * 32-bit unsigned int, hex notation:
+ *   ooooTTss
+ *   oooo: record offset
+ *   TT: type
+ *   ss: size of type
+ */ 
 #define RecordModelOffset(u) ((u) >> 16)
 #define RecordModelType(u) ((u) & 0xFFFF)
 #define RecordModelTypeNoSize(u) ((u) & 0xFF00)

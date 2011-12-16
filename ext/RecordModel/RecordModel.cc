@@ -339,6 +339,26 @@ static void parse_hexstring(uint8_t *v, uint32_t desc, int strlen, const char *s
   }
 }
 
+#define FMT_FIXPOINT_INT 0x01
+
+uint64_t conv_integer(uint32_t fmt, const char *s, const char *e)
+{
+  uint64_t v;
+  if (fmt == 0)
+  {
+     v = conv_str_to_uint(s, e);
+  }
+  else if (fmt == FMT_FIXPOINT_INT)
+  {
+    v = conv_str_to_uint2(s, e, fmt >> 8);
+  }
+  else
+  {
+    assert(false);
+  }
+  return v;
+}
+
 static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc_arr)
 {
   RecordModelInstance *mi;
@@ -354,21 +374,9 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
   int i;
   for (i=0; i < RARRAY_LEN(_desc_arr); ++i)
   {
-    VALUE e = RARRAY_PTR(_desc_arr)[i];
-
-    uint32_t desc;
-    bool has_additional;
-
-    if (TYPE(e) == T_ARRAY)
-    {
-      has_additional = true;
-      desc = NUM2UINT(RARRAY_PTR(e)[0]);
-    }
-    else
-    {
-      has_additional = false;
-      desc = NUM2UINT(e);
-    }
+    uint64_t item = NUM2ULONG(RARRAY_PTR(_desc_arr)[i]);
+    uint32_t desc = item & 0xFFFFFFFF;
+    uint32_t fmt = item >> 32;
 
     assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
     const char *ptr = model.ptr_to_field(mi, desc);
@@ -379,45 +387,40 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
 
     if (RecordModelType(desc) == RMT_UINT64)
     {
-      uint64_t v;
-
-      if (has_additional)
-      {
-        assert(RARRAY_LEN(e) == 2);
-        v = conv_str_to_uint2(tok, next, FIX2INT(RARRAY_PTR(e)[1]));
-      }
-      else
-      {
-        v = conv_str_to_uint(tok, next);
-      }
-
-      *((uint64_t*)ptr) = v;
+      *((uint64_t*)ptr) = conv_integer(fmt, tok, next);
     }
     else if (RecordModelType(desc) == RMT_UINT32)
     {
-      uint64_t v = conv_str_to_uint(tok, next);
+      uint64_t v = conv_integer(fmt, tok, next);
       if (v > 0xFFFFFFFF) rb_raise(rb_eArgError, "Integer out of uint32 range: %ld", v);
       *((uint32_t*)ptr) = (uint32_t)v;
     }
     else if (RecordModelType(desc) == RMT_UINT16)
     {
-      uint64_t v = conv_str_to_uint(tok, next);
+      uint64_t v = conv_integer(fmt, tok, next);
       if (v > 0xFFFF) rb_raise(rb_eArgError, "Integer out of uint16 range: %ld", v);
       *((uint16_t*)ptr) = (uint16_t)v;
     }
     else if (RecordModelType(desc) == RMT_UINT8)
     {
-      uint64_t v = conv_str_to_uint(tok, next);
+      uint64_t v = conv_integer(fmt, tok, next);
       if (v > 0xFF) rb_raise(rb_eArgError, "Integer out of uint8 range: %ld", v);
       *((uint8_t*)ptr) = (uint8_t)v;
     }
     else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
     {
+      assert(fmt == 0);
       parse_hexstring((uint8_t*)ptr, desc, (int)(next-tok), tok); 
     }
     else if (RecordModelType(desc) == RMT_DOUBLE)
     {
+      assert(fmt == 0);
       *((double*)ptr) = conv_str_to_double(tok, next);
+    }
+    else if (desc == 0)
+    {
+      assert(fmt == 0);
+      // ignore
     }
     else
     {

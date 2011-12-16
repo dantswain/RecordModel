@@ -184,4 +184,27 @@ class RecordModelInstance
     db.query(from, to, item, &block)
   end
 
+  #
+  # Example usage: def_parser_descr(:uid, :campaign_id, nil, [:timestamp, :fixint, 3])
+  #
+  def self.def_parse_descr(*args)
+    args.map {|arg|
+      case arg 
+      when nil
+        0 # skip
+      when Symbol
+        __info[arg].first
+      when Array
+        id, type, extra = *arg
+        if type == :fixint
+          (((extra << 8) | 0x01) << 32) | __info[id].first
+        else
+          raise ArgumentError
+        end
+      else
+        raise ArgumentError
+      end
+    }
+  end
+
 end
