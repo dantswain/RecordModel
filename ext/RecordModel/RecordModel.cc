@@ -348,7 +348,7 @@ uint64_t conv_integer(uint32_t fmt, const char *s, const char *e)
   {
      v = conv_str_to_uint(s, e);
   }
-  else if (fmt == FMT_FIXPOINT_INT)
+  else if ((fmt&0xFF) == FMT_FIXPOINT_INT)
   {
     v = conv_str_to_uint2(s, e, fmt >> 8);
   }
