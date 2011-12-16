@@ -114,13 +114,27 @@ end
 
 class RecordModelInstanceArray
   alias old_initialize initialize
+
+  attr_reader :model_klass
+
   def initialize(model_klass, n=16, expandable=true)
+    @model_klass = model_klass
     old_initialize(model_klass, n, expandable)
+  end
+
+  alias old_each each
+  def each(instance=nil, &block)
+    old_each(instance || @model_klass.new, &block)
   end
 end
 
 class RecordModelInstance
   include Comparable
+
+  def initialize(hash=nil)
+    super()
+    hash.each {|k, v| self.send(:"#{k}=", v) } if hash
+  end
 
   def to_hash
     h = {}

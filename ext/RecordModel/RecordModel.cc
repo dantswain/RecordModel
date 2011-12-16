@@ -697,6 +697,50 @@ static VALUE RecordModelInstanceArray_reset(VALUE self)
   return self;
 }
 
+static VALUE RecordModelInstanceArray_size(VALUE self)
+{
+  RecordModelInstanceArray *mia;
+  Data_Get_Struct(self, RecordModelInstanceArray, mia);
+
+  return ULONG2NUM(mia->_entries);
+}
+
+static VALUE RecordModelInstanceArray_capacity(VALUE self)
+{
+  RecordModelInstanceArray *mia;
+  Data_Get_Struct(self, RecordModelInstanceArray, mia);
+
+  return ULONG2NUM(mia->_capacity);
+}
+
+static VALUE RecordModelInstanceArray_expandable(VALUE self)
+{
+  RecordModelInstanceArray *mia;
+  Data_Get_Struct(self, RecordModelInstanceArray, mia);
+
+  if (mia->expandable)
+    return Qtrue;
+  else
+    return Qfalse;
+}
+
+static VALUE RecordModelInstanceArray_each(VALUE self, VALUE _mi)
+{
+  RecordModelInstanceArray *mia;
+  Data_Get_Struct(self, RecordModelInstanceArray, mia);
+
+  RecordModelInstance *mi;
+  Data_Get_Struct(_mi, RecordModelInstance, mi);
+
+  for (size_t i = 0; i < mia->_entries; ++i)
+  {
+    memcpy(mi->ptr, mi->model->elemptr(mia, i), mi->model->size);
+    rb_yield(_mi);
+  }
+
+  return Qnil;
+}
+
 
 extern "C"
 void Init_RecordModelExt()
@@ -724,4 +768,8 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstanceArray, "full?", (VALUE (*)(...)) RecordModelInstanceArray_is_full, 0);
   rb_define_method(cRecordModelInstanceArray, "<<", (VALUE (*)(...)) RecordModelInstanceArray_push, 1);
   rb_define_method(cRecordModelInstanceArray, "reset", (VALUE (*)(...)) RecordModelInstanceArray_reset, 0);
+  rb_define_method(cRecordModelInstanceArray, "size", (VALUE (*)(...)) RecordModelInstanceArray_size, 0);
+  rb_define_method(cRecordModelInstanceArray, "capacity", (VALUE (*)(...)) RecordModelInstanceArray_capacity, 0);
+  rb_define_method(cRecordModelInstanceArray, "expandable?", (VALUE (*)(...)) RecordModelInstanceArray_expandable, 0);
+  rb_define_method(cRecordModelInstanceArray, "each", (VALUE (*)(...)) RecordModelInstanceArray_each, 1);
 }
