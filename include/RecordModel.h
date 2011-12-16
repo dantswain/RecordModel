@@ -223,6 +223,12 @@ struct RecordModel
     }
   }
 
+  void copy_field(RecordModelInstance *dest, const RecordModelInstance *src, uint32_t desc) const
+  {
+    assert(dest->model == this && src->model == this);
+    memcpy((char*)ptr_to_field(dest, desc), ptr_to_field(src, desc), RecordModelTypeSize(desc));
+  }
+
   /*
    * Returns i >= 0, if key is not in range, or -1 if it is in range. If i >= 0, then this is the key position
    * that is not in range.

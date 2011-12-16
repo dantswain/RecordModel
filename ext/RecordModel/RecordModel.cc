@@ -449,6 +449,15 @@ static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
 
   assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
 
+  if (TYPE(_val) == T_DATA)
+  {
+    // we assume it's another RecordModelInstace!!!
+    RecordModelInstance *copy_from;
+    Data_Get_Struct(_val, RecordModelInstance, copy_from);
+    model.copy_field(mi, copy_from, desc); 
+    return Qnil;
+  }
+
   const char *ptr = model.ptr_to_field(mi, desc);
 
   if (RecordModelType(desc) == RMT_UINT64)
