@@ -144,4 +144,45 @@ class RecordModelInstance
     RecordModelInstanceArray.new(self, n)
   end
 
+  def __info_keys
+    __info().each do |id, v|
+      yield id, v[0] if v[1] == :key
+    end
+  end
+
+  def self.build_query(query={})
+    from = new()
+    to = new()
+
+    used_keys = [] 
+
+    __info_keys() {|id, desc|
+      if query.has_key?(id)
+        used_keys << id
+        case (q = query[id])
+        when Range 
+          raise ArgumentError if q.exclude_end?
+          from[desc] = q.first 
+          to[desc] = q.last
+        else
+          from[desc] = to[desc] = q
+        end
+      else
+        from.set_min_or_max(desc, true) # set min
+        to.set_min_or_max(desc, false) # set max
+      end
+    }
+
+    raise ArgumentError unless (query.keys - used_keys).empty?
+
+    return from, to
+  end
+
+  def self.query_db(db, query={}, &block)
+    from, to = build_query(query)
+    p from, to
+    item = new()
+    db.query(from, to, item)
+  end
+
 end

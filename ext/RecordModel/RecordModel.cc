@@ -482,6 +482,51 @@ static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
   return Qnil;
 }
 
+static VALUE RecordModelInstance_set_min_or_max(VALUE self, VALUE _desc, VALUE _set_min)
+{
+  RecordModelInstance *mi;
+  Data_Get_Struct(self, RecordModelInstance, mi);
+  const RecordModel &model = *mi->model;
+
+  uint32_t desc = NUM2UINT(_desc);
+
+  assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
+
+  const char *ptr = model.ptr_to_field(mi, desc);
+
+  bool set_min = RTEST(_set_min);
+
+  if (RecordModelType(desc) == RMT_UINT64)
+  {
+    *((uint64_t*)ptr) = set_min ? 0 : 0xFFFFFFFFFFFFFFFF;
+  }
+  else if (RecordModelType(desc) == RMT_UINT32)
+  {
+    *((uint32_t*)ptr) = set_min ? 0 : 0xFFFFFFFF;
+  }
+  else if (RecordModelType(desc) == RMT_UINT16)
+  {
+    *((uint16_t*)ptr) = set_min ? 0 : 0xFFFF;
+  }
+  else if (RecordModelType(desc) == RMT_UINT8)
+  {
+    *((uint8_t*)ptr) = set_min ? 0 : 0xFF;
+  }
+  else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
+  {
+    memset((uint8_t*)ptr, set_min ? 0 : 0xFF, RecordModelTypeSize(desc));
+  }
+  else if (RecordModelType(desc) == RMT_DOUBLE)
+  {
+    *((double*)ptr) = set_min ? -INFINITY : INFINITY;
+  }
+  else
+  {
+    rb_raise(rb_eArgError, "Wrong description");
+  }
+  return Qnil;
+}
+
 static VALUE RecordModelInstance_zero(VALUE self)
 {
   RecordModelInstance *mi;
@@ -641,6 +686,7 @@ void Init_RecordModelExt()
   cRecordModelInstance = rb_define_class("RecordModelInstance", rb_cObject);
   rb_define_method(cRecordModelInstance, "[]", (VALUE (*)(...)) RecordModelInstance_get, 1);
   rb_define_method(cRecordModelInstance, "[]=", (VALUE (*)(...)) RecordModelInstance_set, 2);
+  rb_define_method(cRecordModelInstance, "set_min_or_max", (VALUE (*)(...)) RecordModelInstance_set_min_or_max, 2);
   rb_define_method(cRecordModelInstance, "zero!", (VALUE (*)(...)) RecordModelInstance_zero, 0);
   rb_define_method(cRecordModelInstance, "dup", (VALUE (*)(...)) RecordModelInstance_dup, 0);
   rb_define_method(cRecordModelInstance, "sum_values!", (VALUE (*)(...)) RecordModelInstance_sum_values, 1);
