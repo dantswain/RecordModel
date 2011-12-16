@@ -212,10 +212,16 @@ static VALUE put_bulk(void *p)
 
   assert(mdb->writable);
   
-  size_t n = a->arr->entries();
+  int64_t n = a->arr->entries();
+
+  if (n == 0)
+  {
+    return Qnil;
+  }
+
   uint32_t *idxs = (uint32_t*)malloc(sizeof(uint32_t) * n);
   assert(idxs);
-  for (size_t i = 0; i < n; ++i)
+  for (int64_t i = 0; i < n; ++i)
   {
     idxs[i] = i;
   }
@@ -237,9 +243,24 @@ static VALUE put_bulk(void *p)
   idx_arr[0] = n;
   idx_arr++;
 
-  for (size_t i = 0; i < n; ++i)
+  size_t rno;
+
+  // store smallest record first
+  rno = mdb->header->num_records++;
+  idx_arr[0] = rno; 
+  memcpy(mdb->record_n(rno), m->elemptr(a->arr, idxs[0]), m->size);
+
+  // store largest record next (better locality)
+  if (n > 1)
   {
-    size_t rno = mdb->header->num_records++;
+    rno = mdb->header->num_records++;
+    idx_arr[n-1] = rno; 
+    memcpy(mdb->record_n(rno), m->elemptr(a->arr, idxs[n-1]), m->size);
+  }
+
+  for (int64_t i = 1; i < n-1; ++i)
+  {
+    rno = mdb->header->num_records++;
     idx_arr[i] = rno; 
     memcpy(mdb->record_n(rno), m->elemptr(a->arr, idxs[i]), m->size);
   }
