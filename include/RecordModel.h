@@ -378,18 +378,6 @@ struct RecordModel
     }
   }
 
-  /*
-  void advance_keys_in_range(RecordModelInstance *c, const RecordModelInstance *l, const RecordModelInstance *r)
-  {
-    int i = keys_in_range_pos(c, l, r);
-    if (i != 0)
-    {
-      copy_keys(c, l, i);
-      increase_key(c, i - 1);
-    }
-  }
-  */
-
   int compare_keys(const RecordModelInstance *a, const RecordModelInstance *b)
   {
     assert(a->model == this && b->model == this);

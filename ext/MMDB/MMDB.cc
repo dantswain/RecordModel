@@ -224,10 +224,12 @@ static VALUE put_bulk(void *p)
   s.arr = a->arr; 
   std::sort(idxs, idxs+n, s);
 
+#if 0
   for (size_t i = 1; i < n; ++i)
   {
     assert(m->compare_keys_buf(m->keyptr(a->arr, idxs[i]), m->keyptr(a->arr, idxs[i-1])) >= 0);
   }
+#endif
 
   uint64_t *idx_arr = &mdb->slices_beg[mdb->header->slices_i];
   mdb->header->slices_i += n+1;
@@ -313,6 +315,7 @@ int64_t bin_search(int64_t l, int64_t r, const char *key, RecordDB *mdb, RecordM
 }
 
  
+// TODO: use rb_thread_blocking_region  
 static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
 {
   RecordDB *mdb;
@@ -335,7 +338,6 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
   uint64_t *slice = mdb->slices_beg;
   uint64_t *end_slice = mdb->slices_beg + mdb->header->slices_i;
 
-  int n = 0;
   while (slice < end_slice) 
   {
     uint64_t len = *slice;
@@ -360,10 +362,6 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
     while (i < len)
     {
       const char *rec = (const char*)mdb->record_n(slice[i]);
-      if (model->compare_keys_buf((const char*)model->keyptr(to), rec) < 0)
-      {
-        break;
-      }
 
       memcpy(model->keyptr(current), rec, model->keysize());
       int kp = model->keys_in_range_pos(current, from, to);
@@ -394,7 +392,12 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
 	{
 	  // key at keypos moved beyond the to-bound. reset it and all 
 	  // following keys, and increase the previous key.
-	  assert(keypos > 0); // should never happen as then the key is > to
+          if (keypos == 0)
+          {
+            // if the first key moves beyond 'to' the search is over for this slice
+            assert(model->compare_keys_buf((const char*)model->keyptr(to), (const char*)model->keyptr(current)) < 0);
+            break;
+          }
           model->copy_keys(current, from, keypos);
           model->increase_key(current, keypos-1); // XXX: check key overflows!
 	}
@@ -402,11 +405,10 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
         /* binary_search forward */
         i = bin_search(i+1, len - 1, (const char*)model->keyptr(current), mdb, model, slice);
       }
-    }
+    } /* inner while */
 
     // jump to next slice
     slice += len;
-    n++;
 
   } /* while */
 
