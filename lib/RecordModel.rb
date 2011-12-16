@@ -144,7 +144,7 @@ class RecordModelInstance
     RecordModelInstanceArray.new(self, n)
   end
 
-  def __info_keys
+  def self.__info_keys
     __info().each do |id, v|
       yield id, v[0] if v[1] == :key
     end
