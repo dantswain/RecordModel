@@ -212,9 +212,10 @@ class RecordModelInstance
     db.query(from, to, item, &block)
   end
 
-  def self.db_query_into(db, itemarr=make_array(1024), query={})
+  def self.db_query_into(db, itemarr=nil, query={})
     from, to = build_query(query)
     item = new()
+    itemarr ||= make_array(1024)
     if db.query_into(from, to, item, itemarr)
       return itemarr
     else
