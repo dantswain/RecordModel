@@ -206,13 +206,13 @@ class RecordModelInstance
     return from, to
   end
 
-  def self.query_db(db, query={}, &block)
+  def self.db_query(db, query={}, &block)
     from, to = build_query(query)
     item = new()
     db.query(from, to, item, &block)
   end
 
-  def self.query_into_db(db, n=1024, query={})
+  def self.db_query_into(db, n=1024, query={})
     from, to = build_query(query)
     item = new()
     itemarr = make_array(n)
