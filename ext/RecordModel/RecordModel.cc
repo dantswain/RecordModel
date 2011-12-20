@@ -242,6 +242,13 @@ static VALUE RecordModelInstance_cmp(VALUE _a, VALUE _b)
   return INT2FIX(a->model->compare_keys(a, b));
 }
 
+static VALUE RecordModelInstance_to_s(VALUE self)
+{
+  RecordModelInstance *mi;
+  Data_Get_Struct(self, RecordModelInstance, mi);
+  return rb_str_new(mi->ptr, mi->model->size);
+}
+
 static VALUE RecordModelInstance_get(VALUE self, VALUE _desc)
 {
   RecordModelInstance *mi;
@@ -760,6 +767,7 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstance, "sum_values!", (VALUE (*)(...)) RecordModelInstance_sum_values, 1);
   rb_define_method(cRecordModelInstance, "<=>", (VALUE (*)(...)) RecordModelInstance_cmp, 1);
   rb_define_method(cRecordModelInstance, "parse_line", (VALUE (*)(...)) RecordModelInstance_parse_line, 2);
+  rb_define_method(cRecordModelInstance, "to_s", (VALUE (*)(...)) RecordModelInstance_to_s, 0);
 
   cRecordModelInstanceArray = rb_define_class("RecordModelInstanceArray", rb_cObject);
   rb_define_alloc_func(cRecordModelInstanceArray, RecordModelInstanceArray__allocate);
