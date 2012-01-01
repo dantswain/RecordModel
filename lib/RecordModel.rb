@@ -3,25 +3,23 @@ require 'RecordModelExt'
 class RecordModel
 
   class Builder
-    attr_accessor :keys, :values, :accs
+
+    attr_accessor :attrs, :accs
+
     def initialize
-      @ids = {}
-      @keys = []
-      @values = []
+      @attrs = [] 
       @accs = {}
       yield self
     end
 
     def key(id, type, sz=nil)
-      raise if @ids.has_key?(id)
-      @ids[id] = true
-      @keys << [id, type, sz]
+      raise if @attrs.assoc(id)
+      @attrs << [id, :key, type, sz]
     end
 
     def val(id, type, sz=nil)
-      raise if @ids.has_key?(id)
-      @ids[id] = true
-      @values << [id, type, sz]
+      raise if @attrs.assoc(id)
+      @attrs << [id, :val, type, sz]
     end
 
     def acc(id, type, *args)
@@ -41,7 +39,6 @@ class RecordModel
       end
     end
 
-    alias value val
   end
 
   def self.define(&block)
@@ -50,23 +47,22 @@ class RecordModel
     offset = 0
     info = {} 
 
-    keys = []
-    b.keys.each do |id, type, sz|
-      desc = def_descr(offset, type, sz)
-      offset += type_size(type, sz)
-      keys << desc
-      info[id] = [desc, :key]
+    a = {}
+    a[:key] = []
+    a[:val] = []
+
+    [:key, :val].each do |k|
+      b.attrs.each do |id, k_or_v, type, sz|
+        if k_or_v == k
+          desc = def_descr(offset, type, sz)
+          offset += type_size(type, sz)
+          a[k] << desc
+          info[id] = [desc, k]
+        end
+      end
     end
 
-    values = []
-    b.values.each do |id, type, sz|
-      desc = def_descr(offset, type, sz)
-      offset += type_size(type, sz)
-      values << desc
-      info[id] = [desc, :value]
-    end
-
-    model = new(keys, values)
+    model = new(a[:key], a[:val])
     klass = model.to_class
 
     info.each do |id, v|
@@ -160,7 +156,7 @@ class RecordModelInstance
 
   def values_to_hash
     h = {}
-    __info().each {|id,v| t = v[1]; h[id] = send(id) if t == :value}
+    __info().each {|id,v| t = v[1]; h[id] = send(id) if t == :val}
     h
   end
 
