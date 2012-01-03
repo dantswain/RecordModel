@@ -6,6 +6,7 @@
 #include <string.h>  // memcpy
 #include <assert.h>  // assert
 #include <limits>    // std::numeric_limits
+#include "ruby.h"    // Ruby
 
 class RM_Type
 {
@@ -15,8 +16,12 @@ class RM_Type
   inline uint16_t offset() { return _offset; } 
   inline uint8_t size() { return _size; } 
 
+  virtual VALUE get_ruby(const void *a) = 0;
+  virtual void set_ruby(void *a, VALUE val) = 0;
+
   virtual void set_min(void *a) = 0;
   virtual void set_max(void *a) = 0;
+
   virtual void add(void *a, const void *b) = 0;
   virtual void inc(void *a) = 0;
   virtual void copy(void *a, const void *b) = 0;
@@ -24,12 +29,69 @@ class RM_Type
   virtual int compare(const void *a, const void *b) = 0;
 };
 
-template <class NT>
+template <typename NT>
 struct RM_Numeric : RM_Type
 {
   inline NT *element_ptr(void *data) { return (NT*) (((char*)data)+offset()); }
   inline NT &element(void *data) { return *element_ptr(data); }
   inline NT element(const void *data) { return *element_ptr((void*)data); }
+
+  inline VALUE to_ruby(uint64_t v) { return ULONG2NUM(v); }
+  inline VALUE to_ruby(uint32_t v) { return UINT2NUM(v); }
+  inline VALUE to_ruby(uint16_t v) { return UINT2NUM(v); }
+  inline VALUE to_ruby(uint8_t v) { return UINT2NUM(v); }
+  inline VALUE to_ruby(double v) { return rb_float_new(v); }
+
+  void from_ruby(uint64_t &dst, VALUE val)
+  {
+    dst = (uint64_t)NUM2ULONG(val);
+  }
+
+  void from_ruby(uint32_t &dst, VALUE val)
+  {
+    uint64_t v = NUM2UINT(val);
+    if (v > 0xFFFFFFFF) rb_raise(rb_eArgError, "Integer out of range: %ld", v);
+    dst = (uint32_t)v;
+  }
+
+  void from_ruby(uint16_t &dst, VALUE val)
+  {
+    uint64_t v = NUM2UINT(val);
+    if (v > 0xFFFF) rb_raise(rb_eArgError, "Integer out of range: %ld", v);
+    dst = (uint16_t)v;
+  }
+
+  void from_ruby(uint8_t &dst, VALUE val)
+  {
+    uint64_t v = NUM2UINT(val);
+    if (v > 0xFF) rb_raise(rb_eArgError, "Integer out of range: %ld", v);
+    dst = (uint8_t)v;
+  }
+
+  void from_ruby(double &dst, VALUE val)
+  {
+    dst = (double)NUM2DBL(val);
+  }
+
+  virtual VALUE get_ruby(const void *a)
+  {
+    return to_ruby(element(a));
+  }
+
+  virtual void set_ruby(void *a, VALUE val)
+  {
+    from_ruby(element(a), val);
+  }
+
+  virtual void set_min(void *a)
+  {
+    element(a) = std::numeric_limits<NT>::min();
+  }
+
+  virtual void set_max(void *a)
+  {
+    element(a) = std::numeric_limits<NT>::max();
+  }
 
   virtual void add(void *a, const void *b)
   {
@@ -58,16 +120,6 @@ struct RM_Numeric : RM_Type
     if (element(a) < element(b)) return -1;
     if (element(a) > element(b)) return 1;
     return 0;
-  }
-
-  virtual void set_min(void *a)
-  {
-    element(a) = std::numeric_limits<NT>::min();
-  }
-
-  virtual void set_max(void *a)
-  {
-    element(a) = std::numeric_limits<NT>::max();
   }
 
 };
@@ -107,6 +159,77 @@ struct RM_HEXSTRING
 {
   inline uint8_t *element_ptr(void *data) { return (uint8_t*) (((char*)data)+offset()); }
   inline const uint8_t *element_ptr(const void *data) { return (const uint8_t*) (((const char*)data)+offset()); }
+
+  char to_hex_digit(uint8_t v)
+  {
+    if (/*v >= 0 && */v <= 9) return '0' + v;
+    if (v >= 10 && v <= 15) return 'A' + v - 10;
+    return '#';
+  }
+
+  virtual VALUE get_ruby(const void *a)
+  {
+    const uint8_t *ptr = element_ptr(a);
+
+    VALUE strbuf = rb_str_buf_new(2*size());
+    char cbuf[3];
+    cbuf[2] = 0;
+    for (int i = 0; i < size(); ++i)
+    {
+      cbuf[0] = to_hex_digit((ptr[i]) >> 4);
+      cbuf[1] = to_hex_digit((ptr[i]) & 0x0F);
+      rb_str_buf_cat_ascii(strbuf, cbuf);
+    }
+    return strbuf;
+  }
+
+  int from_hex_digit(char c)
+  {
+    if (c >= '0' && c <= '9') return c-'0';
+    if (c >= 'a' && c <= 'f') return c-'a'+10;
+    if (c >= 'A' && c <= 'F') return c-'A'+10;
+    return -1;
+  }
+
+  void parse_hexstring(uint8_t *v, int strlen, const char *str)
+  {
+    const int max_sz = 2*size();
+    const int i_off = max_sz - strlen;
+
+    if (strlen > max_sz)
+    {
+      rb_raise(rb_eArgError, "Invalid string size. Was: %d, Max: %d",
+               strlen, max_sz);
+    }
+
+    bzero(v, size());
+
+    for (int i = 0; i < strlen; ++i)
+    {
+      int digit = from_hex_digit(str[i]);
+      if (digit < 0)
+        rb_raise(rb_eArgError, "Invalid hex digit at %s", &str[i]);
+
+      v[(i+i_off)/2] = (v[(i+i_off)/2] << 4) | (uint8_t)digit;
+    }
+  }
+
+  virtual void set_ruby(void *a, VALUE val)
+  {
+    Check_Type(val, T_STRING);
+    parse_hexstring(element_ptr(a), RSTRING_LEN(val), RSTRING_PTR(val));
+  }
+
+  virtual void set_min(void *a)
+  {
+    memset(element_ptr(a), 0, size());
+  }
+  
+  virtual void set_max(void *a)
+  {
+    memset(element_ptr(a), 0xFF, size());
+  }
+
 
   virtual void add(void *a, const void *b)
   {
@@ -169,16 +292,6 @@ struct RM_HEXSTRING
       if (a[i] > b[i]) return 1;
     }
     return 0;
-  }
-
-  virtual void set_min(void *a)
-  {
-    memset(element_ptr(a), 0, size());
-  }
-  
-  virtual void set_max(void *a)
-  {
-    memset(element_ptr(a), 0xFF, size());
   }
 
 };
