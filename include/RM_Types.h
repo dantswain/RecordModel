@@ -8,7 +8,7 @@
 #include <limits>    // std::numeric_limits
 #include "ruby.h"    // Ruby
 
-class RM_Type
+struct RM_Type
 {
   uint16_t _offset;
   uint8_t _size;
@@ -279,8 +279,7 @@ struct RM_DOUBLE : RM_Type
   }
 };
 
-
-struct RM_HEXSTRING 
+struct RM_HEXSTRING : RM_Type
 {
   inline uint8_t *element_ptr(void *data) { return (uint8_t*) (((char*)data)+offset()); }
   inline const uint8_t *element_ptr(const void *data) { return (const uint8_t*) (((const char*)data)+offset()); }
@@ -418,8 +417,8 @@ struct RM_HEXSTRING
  
     for (int i=0; i < size(); ++i)
     {
-      if (a[i] < b[i]) return -1;
-      if (a[i] > b[i]) return 1;
+      if (ap[i] < bp[i]) return -1;
+      if (ap[i] > bp[i]) return 1;
     }
     return 0;
   }
