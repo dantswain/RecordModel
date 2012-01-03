@@ -18,6 +18,7 @@ class RM_Type
 
   virtual VALUE to_ruby(const void *a) = 0;
   virtual void set_from_ruby(void *a, VALUE val) = 0;
+  virtual void set_from_string(void *a, const char *s, const char *e, uint32_t fmt) = 0;
 
   virtual void set_min(void *a) = 0;
   virtual void set_max(void *a) = 0;
@@ -41,15 +42,104 @@ struct RM_UInt : RM_Type
     return ULONG2NUM(element(a));
   }
 
-  virtual void set_from_ruby(void *a, VALUE val)
+  void _set_uint(void *a, uint64_t v)
   {
-    uint64_t v = NUM2ULONG(val);
-
     if (!(v >= std::numeric_limits<NT>::min() &&
           v <= std::numeric_limits<NT>::max()))
       rb_raise(rb_eArgError, "Integer out of range: %ld", v);
 
     element(a) = (NT)v;
+  }
+
+  // XXX: handle conversion failures
+  static uint64_t conv_str_to_uint(const char *s, const char *e)
+  {
+    uint64_t v = 0;
+    for (; s != e; ++s)
+    {
+      char c = *s;
+      if (c >= '0' && c <= '9')
+      {
+        v *= 10;
+        v += (c-'0');
+      }
+      else
+      {
+        return 0; // invalid
+      }
+    }
+    return v;
+  }
+
+  // XXX: handle conversion failures
+  static uint64_t conv_str_to_uint2(const char *s, const char *e, int precision)
+  {
+    uint64_t v = 0;
+    int post_digits = -1; 
+    for (; s != e; ++s)
+    {
+      char c = *s;
+      if (c >= '0' && c <= '9')
+      {
+        v *= 10;
+        v += (c-'0');
+        if (post_digits >= 0)
+          ++post_digits;
+      }
+      else if (c == '.')
+      {
+        if (post_digits >= 0)
+          return 0; // invalid
+        // ignore
+        post_digits = 0;
+      }
+      else
+      {
+        return 0; // invalid
+      }
+    }
+
+    for (; post_digits < precision; ++post_digits)
+    {
+      v *= 10;
+    }
+
+    for (; post_digits > precision; --post_digits)
+    {
+      v /= 10;
+    }
+ 
+    return v;
+  }
+
+  #define FMT_FIXPOINT_INT 0x01
+
+  static uint64_t conv_integer(uint32_t fmt, const char *s, const char *e)
+  {
+    uint64_t v;
+    if (fmt == 0)
+    {
+       v = conv_str_to_uint(s, e);
+    }
+    else if ((fmt&0xFF) == FMT_FIXPOINT_INT)
+    {
+      v = conv_str_to_uint2(s, e, fmt >> 8);
+    }
+    else
+    {
+      assert(false);
+    }
+    return v;
+  }
+
+  virtual void set_from_ruby(void *a, VALUE val)
+  {
+    _set_uint((uint64_t)NUM2ULONG(val));
+  }
+
+  virtual void set_from_string(void *a, const char *s, const char *e, uint32_t fmt)
+  {
+    _set_uint((uint64_t)conv_integer(fmt, s, e));
   }
 
   virtual void set_min(void *a)
@@ -64,7 +154,7 @@ struct RM_UInt : RM_Type
 
   virtual void add(void *a, const void *b)
   {
-    element(a) += element(b) 
+    element(a) += element(b);
   }
 
   virtual void inc(void *a)
@@ -74,7 +164,7 @@ struct RM_UInt : RM_Type
  
   virtual void copy(void *a, const void *b)
   {
-    element(a) = element(b) 
+    element(a) = element(b);
   }
 
   virtual int between(const void *c, const void *l, const void *r)
@@ -131,6 +221,22 @@ struct RM_DOUBLE : RM_Type
     element(a) = (double)NUM2DBL(val);
   }
 
+  // XXX: remove char* cast and string modification!
+  static double conv_str_to_double(const char *s, const char *e)
+  {
+    char c = *e;
+    *((char*)e) = '\0';
+    double v = atof(s);
+    *((char*)e) = c;
+    return v;
+  }
+
+  virtual void set_from_string(void *a, const char *s, const char *e, uint32_t fmt)
+  {
+    assert(fmt == 0);
+    element(a) = conv_str_to_double(s, e);
+  }
+ 
   virtual void set_min(void *a)
   {
     // XXX: -INF
@@ -145,7 +251,7 @@ struct RM_DOUBLE : RM_Type
 
   virtual void add(void *a, const void *b)
   {
-    element(a) += element(b) 
+    element(a) += element(b); 
   }
 
   virtual void inc(void *a)
@@ -155,7 +261,7 @@ struct RM_DOUBLE : RM_Type
 
   virtual void copy(void *a, const void *b)
   {
-    element(a) = element(b) 
+    element(a) = element(b);
   }
 
   virtual int between(const void *c, const void *l, const void *r)
@@ -237,6 +343,12 @@ struct RM_HEXSTRING
   {
     Check_Type(val, T_STRING);
     parse_hexstring(element_ptr(a), RSTRING_LEN(val), RSTRING_PTR(val));
+  }
+
+  virtual void set_from_string(void *a, const char *s, const char *e, uint32_t fmt)
+  {
+    assert(fmt == 0);
+    parse_hexstring(element_ptr(a), (int)(e-s), s);
   }
 
   virtual void set_min(void *a)
