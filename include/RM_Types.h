@@ -6,15 +6,16 @@
 #include <string.h>  // memcpy
 #include <assert.h>  // assert
 #include <limits>    // std::numeric_limits
+#include <stdlib.h>  // atof
 #include "ruby.h"    // Ruby
 
 struct RM_Type
 {
   uint16_t _offset;
-  uint8_t _size;
 
   inline uint16_t offset() { return _offset; } 
-  inline uint8_t size() { return _size; } 
+
+  virtual uint8_t size() = 0;
 
   virtual VALUE to_ruby(const void *a) = 0;
   virtual void set_from_ruby(void *a, VALUE val) = 0;
@@ -36,6 +37,8 @@ struct RM_UInt : RM_Type
   inline NT *element_ptr(void *data) { return (NT*) (((char*)data)+offset()); }
   inline NT &element(void *data) { return *element_ptr(data); }
   inline NT element(const void *data) { return *element_ptr((void*)data); }
+
+  virtual uint8_t size() { return sizeof(NT); }
 
   virtual VALUE to_ruby(const void *a)
   {
@@ -134,12 +137,12 @@ struct RM_UInt : RM_Type
 
   virtual void set_from_ruby(void *a, VALUE val)
   {
-    _set_uint((uint64_t)NUM2ULONG(val));
+    _set_uint(a, (uint64_t)NUM2ULONG(val));
   }
 
   virtual void set_from_string(void *a, const char *s, const char *e, uint32_t fmt)
   {
-    _set_uint((uint64_t)conv_integer(fmt, s, e));
+    _set_uint(a, (uint64_t)conv_integer(fmt, s, e));
   }
 
   virtual void set_min(void *a)
@@ -183,33 +186,18 @@ struct RM_UInt : RM_Type
 
 };
 
-struct RM_UINT8 : RM_UInt<uint8_t>
-{
-  //static const int TYPE = 0x0001;
-};
-
-struct RM_UINT16 : RM_UInt<uint16_t>
-{
-  //static const int TYPE = 0x0002;
-};
-
-struct RM_UINT32 : RM_UInt<uint32_t>
-{
-  //static const int TYPE = 0x0004;
-};
-
-struct RM_UINT64 : RM_UInt<uint64_t>
-{
-  //static const int TYPE = 0x0008;
-};
+struct RM_UINT8 : RM_UInt<uint8_t> {}; 
+struct RM_UINT16 : RM_UInt<uint16_t> {};
+struct RM_UINT32 : RM_UInt<uint32_t> {};
+struct RM_UINT64 : RM_UInt<uint64_t> {};
 
 struct RM_DOUBLE : RM_Type 
 {
-  //static const int TYPE = 0x0108;
-
   inline double *element_ptr(void *data) { return (double*) (((char*)data)+offset()); }
   inline double &element(void *data) { return *element_ptr(data); }
   inline double element(const void *data) { return *element_ptr((void*)data); }
+
+  virtual uint8_t size() { return sizeof(double); }
 
   virtual VALUE to_ruby(const void *a)
   {
@@ -279,8 +267,14 @@ struct RM_DOUBLE : RM_Type
   }
 };
 
-struct RM_HEXSTRING : RM_Type
+struct RM_HEXSTR : RM_Type
 {
+  uint8_t _size;
+
+  RM_HEXSTR(uint8_t size) : _size(size) {}
+
+  virtual uint8_t size() { return _size; }
+
   inline uint8_t *element_ptr(void *data) { return (uint8_t*) (((char*)data)+offset()); }
   inline const uint8_t *element_ptr(const void *data) { return (const uint8_t*) (((const char*)data)+offset()); }
 

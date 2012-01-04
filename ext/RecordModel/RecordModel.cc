@@ -2,98 +2,9 @@
 #include <assert.h> // assert
 #include <strings.h> // bzero
 #include <ctype.h> // isspace etc.
-#include <stdlib.h> // atof
+#include <algorithm> // std::max
 #include "ruby.h"
 
-static char to_hex_digit(uint8_t v)
-{
-  if (/*v >= 0 && */v <= 9) return '0' + v;
-  if (v >= 10 && v <= 15) return 'A' + v - 10;
-  return '#';
-}
-
-static int from_hex_digit(char c)
-{
-  if (c >= '0' && c <= '9') return c-'0';
-  if (c >= 'a' && c <= 'f') return c-'a'+10;
-  if (c >= 'A' && c <= 'F') return c-'A'+10;
-  return -1;
-}
-
-static double conv_str_to_double(const char *s, const char *e)
-{
-  char c = *e;
-  *((char*)e) = '\0';
-  double v = atof(s);
-  *((char*)e) = c;
-  return v;
-#if 0
-  char buf[32];
-  int sz = (int)(e-s);
-  memcpy(buf, s, sz); 
-  buf[sz] = '\0';
-  return atof(buf);
-#endif
-}
-
-static uint64_t conv_str_to_uint(const char *s, const char *e)
-{
-  uint64_t v = 0;
-  for (; s != e; ++s)
-  {
-    char c = *s;
-    if (c >= '0' && c <= '9')
-    {
-      v *= 10;
-      v += (c-'0');
-    }
-    else
-    {
-      return 0; // invalid
-    }
-  }
-  return v;
-}
-
-static uint64_t conv_str_to_uint2(const char *s, const char *e, int precision)
-{
-  uint64_t v = 0;
-  int post_digits = -1; 
-  for (; s != e; ++s)
-  {
-    char c = *s;
-    if (c >= '0' && c <= '9')
-    {
-      v *= 10;
-      v += (c-'0');
-      if (post_digits >= 0)
-        ++post_digits;
-    }
-    else if (c == '.')
-    {
-      if (post_digits >= 0)
-        return 0; // invalid
-      // ignore
-      post_digits = 0;
-    }
-    else
-    {
-      return 0; // invalid
-    }
-  }
-
-  for (; post_digits < precision; ++post_digits)
-  {
-    v *= 10;
-  }
-
-  for (; post_digits > precision; --post_digits)
-  {
-    v /= 10;
-  }
- 
-  return v;
-}
 /*
  * C extension
  */
@@ -106,201 +17,402 @@ static VALUE cRecordModelInstanceArray;
  * RecordModel
  */
 
-static void RecordModel__free(void *ptr)
+static
+RecordModel *new_RecordModel()
 {
-  RecordModel *m = (RecordModel*) ptr;
-  if (m)
+  return new RecordModel();
+}
+
+static
+void free_RecordModel(RecordModel *model)
+{
+  delete model;
+}
+
+static
+void mark_RecordModel(RecordModel *model)
+{
+  if (model)
   {
-    delete(m);
+    rb_gc_mark(model->_rm_obj);
   }
 }
 
-static VALUE RecordModel__allocate(VALUE klass)
+static
+void RecordModel__free(void *ptr)
 {
+  free_RecordModel((RecordModel*)ptr);
+}
+
+static
+void RecordModel__mark(void *ptr)
+{
+  mark_RecordModel((RecordModel*)ptr);
+}
+
+inline static
+bool is_RecordModel(VALUE obj)
+{
+  return (TYPE(obj) == T_DATA && 
+      RDATA(obj)->dfree == (RUBY_DATA_FUNC)(RecordModel__free));
+}
+
+inline static
+RecordModel* get_RecordModel_nocheck(VALUE obj)
+{
+  RecordModel *ptr;
+  Data_Get_Struct(obj, RecordModel, ptr);
+  assert(ptr);
+  return ptr;
+}
+
+inline static
+RecordModel* get_RecordModel(VALUE obj)
+{
+  if (!is_RecordModel(obj))
+  {
+    rb_raise(rb_eTypeError, "wrong argument type");
+  }
+  RecordModel *model = get_RecordModel_nocheck(obj);
+  assert(model->_rm_obj == obj);
+  return model;
+}
+
+static
+VALUE RecordModel__allocate(VALUE klass)
+{
+  RecordModel *model;
   VALUE obj;
-  obj = Data_Wrap_Struct(klass, NULL, RecordModel__free, new RecordModel());
+
+  model = new_RecordModel(); 
+  obj = Data_Wrap_Struct(klass, RecordModel__mark, RecordModel__free, model);
+  model->_rm_obj = obj;
   return obj;
 }
 
-static RecordModel& RecordModel__get(VALUE self) {
-  RecordModel *ptr;
-  Data_Get_Struct(self, RecordModel, ptr);
-  return *ptr;
-}
-
-static VALUE RecordModel_initialize(VALUE self, VALUE keys, VALUE values)
+static
+VALUE RecordModel_initialize(VALUE self, VALUE fields)
 {
-  Check_Type(keys, T_ARRAY);
-  Check_Type(values, T_ARRAY);
+  Check_Type(fields, T_ARRAY);
 
-  RecordModel &m = RecordModel__get(self);
+  RecordModel *model = get_RecordModel(self);
 
-  assert(m.items == NULL);
-  assert(m.keys == NULL);
-  assert(m.values == NULL);
+  if (!model->is_virgin())
+    rb_raise(rb_eArgError, "RecordModel#initialize called more than once!");
 
-  m.items = new uint32_t[RARRAY_LEN(keys) + RARRAY_LEN(values) + 2];
-  m.keys = &m.items[0];
-  m.values = &m.items[RARRAY_LEN(keys) + 1];
+  size_t num_fields = RARRAY_LEN(fields);
+  size_t num_keys = 0;
+  size_t num_values = 0;
 
-  uint32_t offset = 0;
-
-  int i;
-
-  for (i = 0; i < RARRAY_LEN(keys); ++i)
+  for (size_t i = 0; i < num_fields; ++i)
   {
-    uint32_t desc = NUM2UINT(RARRAY_PTR(keys)[i]);
-    assert(RecordModelOffset(desc) == 0 || RecordModelOffset(desc) == offset);
+    // Each entry has the following form:
+    // [:id, :type, is_key, offset, length] 
 
-    m.keys[i] = (offset << 16) | RecordModelType(desc);
-    offset += RecordModelTypeSize(desc);
+    VALUE e = RARRAY_PTR(fields)[i];
+    assert(TYPE(e) == T_ARRAY);
+    assert(RARRAY_LEN(e) == 5);
+    assert(SYMBOL_P(RARRAY_PTR(e)[0]));
+    assert(SYMBOL_P(RARRAY_PTR(e)[1]));
+    assert(FIX2UINT(RARRAY_PTR(e)[3]) <= 0xFFFF);
+    assert(FIX2UINT(RARRAY_PTR(e)[4]) <= 0xFF);
+
+    if (RTEST(RARRAY_PTR(e)[2]))
+      ++num_keys;
+    else
+      ++num_values;
   }
-  m.keys[i] = 0x00;
-  m._keysize = offset;
 
-  for (i = 0; i < RARRAY_LEN(values); ++i)
+  assert(num_keys + num_values == num_fields);
+
+  model->_all_fields = (RM_Type**) malloc(sizeof(RM_Type*) * (num_fields + 1));
+  assert(model->_all_fields);
+
+  model->_keys = (RM_Type**) malloc(sizeof(RM_Type*) * (num_keys + 1));
+  assert(model->_keys);
+
+  model->_values = (RM_Type**) malloc(sizeof(RM_Type*) * (num_values + 1));
+  assert(model->_values);
+
+  // Initialize zero
+  for (size_t i = 0; i <= num_fields; ++i) model->_all_fields[i] = NULL;
+  for (size_t i = 0; i <= num_keys; ++i) model->_keys[i] = NULL;
+  for (size_t i = 0; i <= num_values; ++i) model->_values[i] = NULL;
+
+  uint32_t max_sz = 0;
+
+  size_t key_i = 0;
+  size_t val_i = 0;
+
+  for (size_t i = 0; i < num_fields; ++i)
   {
-    uint32_t desc = NUM2UINT(RARRAY_PTR(values)[i]);
-    assert(RecordModelOffset(desc) == 0 || RecordModelOffset(desc) == offset);
+    // Each entry has the following form:
+    // [:id, :type, is_key, offset, length] 
 
-    m.values[i] = (offset << 16) | RecordModelType(desc);
-    offset += RecordModelTypeSize(desc);
+    VALUE e = RARRAY_PTR(fields)[i];
+    assert(TYPE(e) == T_ARRAY);
+    assert(RARRAY_LEN(e) == 5);
+
+    VALUE e_type = RARRAY_PTR(e)[1];
+    VALUE e_is_key = RARRAY_PTR(e)[2];
+    VALUE e_offset = RARRAY_PTR(e)[3];
+    VALUE e_length = RARRAY_PTR(e)[4];
+
+    assert(SYMBOL_P(e_type));
+
+    unsigned int offset = FIX2UINT(e_offset);
+    assert(offset <= 0xFFFF);
+
+    unsigned int length = FIX2UINT(e_length);
+    assert(length <= 0xFF);
+
+    RM_Type *t = NULL;
+
+    if (ID2SYM(rb_intern("uint64")) == e_type)
+    {
+      t = new RM_UINT64();
+    }
+    else if (ID2SYM(rb_intern("uint32")) == e_type)
+    {
+      t = new RM_UINT32();
+    }
+    else if (ID2SYM(rb_intern("uint16")) == e_type)
+    {
+      t = new RM_UINT16();
+    }
+    else if (ID2SYM(rb_intern("uint8")) == e_type)
+    {
+      t = new RM_UINT8();
+    }
+    else if (ID2SYM(rb_intern("double")) == e_type)
+    {
+      t = new RM_DOUBLE();
+    }
+    else if (ID2SYM(rb_intern("hexstr")) == e_type)
+    {
+      t = new RM_HEXSTR(length);
+    }
+    else
+    {
+      assert(false);
+    }
+    t->_offset = offset;
+
+    model->_all_fields[i] = t;
+
+    if (RTEST(e_is_key))
+    {
+      model->_keys[key_i++] = t;
+    }
+    else
+    {
+      model->_values[val_i++] = t;
+    }
+
+    assert(length == t->size());
+
+    max_sz = std::max(max_sz, (uint32_t)(t->offset() + t->size()));
   }
-  m.values[i] = 0x00;
 
-  m.size = offset;
+  assert(key_i == num_keys && val_i == num_values);
+
+  model->_num_fields = num_fields;
+  model->_size = max_sz;
 
   return Qnil;
 }
 
-static VALUE RecordModel_size(VALUE self)
+static
+VALUE RecordModel_size(VALUE self)
 {
-  RecordModel &m = RecordModel__get(self);
-  return UINT2NUM(m.size);
+  return UINT2NUM(get_RecordModel(self)->size());
 }
 
 /*
  * RecordModelInstance
  */
 
-static void RecordModelInstance__free(void *ptr)
+static
+void RecordModelInstance__free(void *ptr)
 {
-  RecordModelInstance *mi = (RecordModelInstance*)ptr;
+  RecordModelInstance::deallocate((RecordModelInstance*)ptr);
+}
 
-  if (mi)
+static
+void RecordModelInstance__mark(void *ptr)
+{
+  RecordModelInstance* rec = (RecordModelInstance*)ptr;
+  if (rec)
   {
-    if (mi->flags & FL_RecordModelInstance_PTR_ALLOCATED)
-    {
-      if (mi->ptr)
-      {
-        free(mi->ptr);
-        mi->ptr = NULL;
-      }
-    }
-    free(mi);
+    mark_RecordModel(rec->model);
   }
 }
 
-static VALUE RecordModelInstance__model(VALUE klass)
+inline static
+bool is_RecordModelInstance(VALUE obj)
+{
+  return (TYPE(obj) == T_DATA && 
+      RDATA(obj)->dfree == (RUBY_DATA_FUNC)(RecordModelInstance__free));
+}
+
+inline static
+RecordModelInstance* get_RecordModelInstance_nocheck(VALUE obj)
+{
+  RecordModelInstance *ptr;
+  Data_Get_Struct(obj, RecordModelInstance, ptr);
+  assert(ptr);
+  return ptr;
+}
+
+inline static
+RecordModelInstance* get_RecordModelInstance(VALUE obj)
+{
+  if (!is_RecordModelInstance(obj))
+  {
+    rb_raise(rb_eTypeError, "wrong argument type");
+  }
+  return get_RecordModelInstance_nocheck(obj);
+}
+
+static
+VALUE RecordModelInstance__model(VALUE klass)
 {
   return rb_cvar_get(klass, rb_intern("@@__model"));
 }
 
-static VALUE RecordModelInstance__allocate2(VALUE klass, bool zero)
+static
+VALUE RecordModelInstance__allocate2(VALUE klass, bool zero)
 {
-  VALUE model = RecordModelInstance__model(klass);
-  RecordModel &m = RecordModel__get(model);
-
   VALUE obj;
-  // XXX: gc!
-  obj = Data_Wrap_Struct(klass, NULL, RecordModelInstance__free, m.create_instance(zero));
+  RecordModel *model = get_RecordModel(RecordModelInstance__model(klass));
+  RecordModelInstance *rec = RecordModelInstance::allocate(model); 
+  assert(rec);
+
+  if (zero)
+    rec->zero();
+
+  obj = Data_Wrap_Struct(klass, RecordModelInstance__mark, RecordModelInstance__free, rec);
   return obj;
 }
 
-static VALUE RecordModelInstance__allocate(VALUE klass)
+static
+VALUE RecordModelInstance__allocate(VALUE klass)
 {
   return RecordModelInstance__allocate2(klass, true);
 }
 
-static RecordModelInstance& RecordModelInstance__get(VALUE self) {
-  RecordModelInstance *ptr;
-  Data_Get_Struct(self, RecordModelInstance, ptr);
-  return *ptr;
-}
-
-
 /*
  * The <=> operator
  */
-static VALUE RecordModelInstance_cmp(VALUE _a, VALUE _b)
+static
+VALUE RecordModelInstance_cmp(VALUE _a, VALUE _b)
 {
-  RecordModelInstance *a;
-  RecordModelInstance *b;
-  Data_Get_Struct(_a, RecordModelInstance, a);
-  Data_Get_Struct(_b, RecordModelInstance, b);
+  RecordModelInstance *a = get_RecordModelInstance(_a);
+  RecordModelInstance *b = get_RecordModelInstance(_b);
 
-  return INT2FIX(a->model->compare_keys(a, b));
+  return INT2FIX(a->compare_keys(b));
 }
 
-static VALUE RecordModelInstance_to_s(VALUE self)
+static
+VALUE RecordModelInstance_to_s(VALUE _self)
 {
-  RecordModelInstance *mi;
-  Data_Get_Struct(self, RecordModelInstance, mi);
-  return rb_str_new(mi->ptr, mi->model->size);
+  RecordModelInstance *self = get_RecordModelInstance(_self);
+  return rb_str_new((const char*)self->ptr(), self->size());
 }
 
-static VALUE RecordModelInstance_get(VALUE self, VALUE _desc)
+static
+VALUE RecordModelInstance_get(VALUE _self, VALUE field_idx)
 {
-  RecordModelInstance *mi;
-  Data_Get_Struct(self, RecordModelInstance, mi);
-  const RecordModel &model = *mi->model;
+  const RecordModelInstance *self = (const RecordModelInstance *)get_RecordModelInstance(_self);
+  RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
 
-  uint32_t desc = NUM2UINT(_desc);
+  if (field == NULL)
+  {
+    rb_raise(rb_eArgError, "Wrong index");
+  }
 
-  assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
+  return field->to_ruby(self->ptr());
+}
 
-  const char *ptr = model.ptr_to_field(mi, desc);
+static
+VALUE RecordModelInstance_set(VALUE _self, VALUE field_idx, VALUE val)
+{
+  RecordModelInstance *self = get_RecordModelInstance(_self);
+  RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
 
-  if (RecordModelType(desc) == RMT_UINT64)
+  if (field == NULL)
   {
-    return ULONG2NUM( *((uint64_t*)ptr) );
+    rb_raise(rb_eArgError, "Wrong index");
   }
-  else if (RecordModelType(desc) == RMT_UINT32)
-  {
-    return UINT2NUM( *((uint32_t*)ptr) );
-  }
-  else if (RecordModelType(desc) == RMT_UINT16)
-  {
-    return UINT2NUM( *((uint16_t*)ptr) );
-  }
-  else if (RecordModelType(desc) == RMT_UINT8)
-  {
-    return UINT2NUM( *((uint8_t*)ptr) );
-  }
-  else if (RecordModelType(desc) == RMT_DOUBLE)
-  {
-    return rb_float_new( *((double*)ptr) );
-  }
-  else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
-  {
-    const uint8_t *ptr2 = (const uint8_t*)ptr;
 
-    VALUE strbuf = rb_str_buf_new(2*RecordModelTypeSize(desc));
-    char cbuf[3];
-    cbuf[2] = 0;
-    for (int i = 0; i < RecordModelTypeSize(desc); ++i)
-    {
-      cbuf[0] = to_hex_digit((ptr2[i]) >> 4);
-      cbuf[1] = to_hex_digit((ptr2[i]) & 0x0F);
-      rb_str_buf_cat_ascii(strbuf, cbuf);
-    }
-    return strbuf;
+  if (is_RecordModelInstance(val))
+  {
+    // val is another RecordModelInstance
+    const RecordModelInstance *other = (const RecordModelInstance *)get_RecordModelInstance(val);
+    if (self->model != other->model)
+      rb_raise(rb_eArgError, "RecordModelInstance types MUST match");
+    field->copy(self->ptr(), other->ptr());
   }
   else
   {
-    // XXX: raise
-    return Qnil;
+    field->set_from_ruby(self->ptr(), val);
   }
+
+  return Qnil;
+}
+
+static
+VALUE RecordModelInstance_set_min(VALUE _self, VALUE field_idx)
+{
+  RecordModelInstance *self = get_RecordModelInstance(_self);
+  RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
+
+  if (field == NULL)
+  {
+    rb_raise(rb_eArgError, "Wrong index");
+  }
+
+  field->set_min(self->ptr());
+
+  return Qnil;
+}
+
+static
+VALUE RecordModelInstance_set_max(VALUE _self, VALUE field_idx)
+{
+  RecordModelInstance *self = get_RecordModelInstance(_self);
+  RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
+
+  if (field == NULL)
+  {
+    rb_raise(rb_eArgError, "Wrong index");
+  }
+
+  field->set_max(self->ptr());
+
+  return Qnil;
+}
+
+static
+VALUE RecordModelInstance_zero(VALUE _self)
+{
+  get_RecordModelInstance(_self)->zero();
+  return _self;
+}
+
+static
+VALUE RecordModelInstance_dup(VALUE self)
+{
+  VALUE obj = RecordModelInstance__allocate2(rb_obj_class(self), false);
+  get_RecordModelInstance(obj)->copy((const RecordModelInstance*)get_RecordModelInstance(self));
+  return obj;
+}
+
+static
+VALUE RecordModelInstance_add_values(VALUE self, VALUE other)
+{
+  get_RecordModelInstance(self)->add_values((const RecordModelInstance*)get_RecordModelInstance(other));
+  return self;
 }
 
 const char *parse_token(const char **src)
@@ -323,120 +435,43 @@ const char *parse_token(const char **src)
   return beg;
 }
 
-static void parse_hexstring(uint8_t *v, uint32_t desc, int strlen, const char *str)
-{
-  const int max_sz = 2*RecordModelTypeSize(desc);
-
-  if (strlen > max_sz)
-  {
-    rb_raise(rb_eArgError, "Invalid string size. Was: %d, Max: %d", strlen, max_sz);
-  }
-
-  bzero(v, RecordModelTypeSize(desc));
-
-  const int i_off = max_sz - strlen;
-
-  for (int i = 0; i < strlen; ++i)
-  {
-    int digit = from_hex_digit(str[i]);
-    if (digit < 0)
-      rb_raise(rb_eArgError, "Invalid hex digit at %s", &str[i]);
-
-    v[(i+i_off)/2] = (v[(i+i_off)/2] << 4) | (uint8_t)digit;
-  }
-}
-
-#define FMT_FIXPOINT_INT 0x01
-
-uint64_t conv_integer(uint32_t fmt, const char *s, const char *e)
-{
-  uint64_t v;
-  if (fmt == 0)
-  {
-     v = conv_str_to_uint(s, e);
-  }
-  else if ((fmt&0xFF) == FMT_FIXPOINT_INT)
-  {
-    v = conv_str_to_uint2(s, e, fmt >> 8);
-  }
-  else
-  {
-    assert(false);
-  }
-  return v;
-}
-
 /*
  * Return Qnil on success, or an Integer.
- * If an Integer is returned, it is the index into _desc_arr which could not parsed due to EOL (end of line).
+ * If an Integer is returned, it is the index into _field_arr which could not parsed due to EOL (end of line).
  * Returns -1 if every item could be parsed but there are still some characters left in the string.
  */
-static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc_arr)
+static
+VALUE RecordModelInstance_parse_line(VALUE _self, VALUE _line, VALUE _field_arr)
 {
-  RecordModelInstance *mi;
-  Data_Get_Struct(self, RecordModelInstance, mi);
-  const RecordModel &model = *mi->model;
+  RecordModelInstance *self = get_RecordModelInstance(_self);
 
   Check_Type(_line, T_STRING);
-  Check_Type(_desc_arr, T_ARRAY);
+  Check_Type(_field_arr, T_ARRAY);
 
   const char *next = RSTRING_PTR(_line); 
   const char *tok = NULL;
 
-  for (int i=0; i < RARRAY_LEN(_desc_arr); ++i)
+  for (int i=0; i < RARRAY_LEN(_field_arr); ++i)
   {
-    uint64_t item = NUM2ULONG(RARRAY_PTR(_desc_arr)[i]);
-    uint32_t desc = item & 0xFFFFFFFF;
-    uint32_t fmt = item >> 32;
-
-    assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
-    const char *ptr = model.ptr_to_field(mi, desc);
+    VALUE e = RARRAY_PTR(_field_arr)[i];
 
     tok = parse_token(&next);
     if (tok == next)
-      return UINT2NUM(i); // premature end
+      return INT2NUM(i); // premature end
 
-    if (RecordModelType(desc) == RMT_UINT64)
+    if (NIL_P(e))
+      continue;
+
+    uint64_t item = NUM2ULONG(e);
+    uint32_t field_idx = item & 0xFFFFFFFF;
+    uint32_t fmt = item >> 32;
+
+    RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
+    if (field == NULL)
     {
-      *((uint64_t*)ptr) = conv_integer(fmt, tok, next);
+      rb_raise(rb_eArgError, "Wrong index");
     }
-    else if (RecordModelType(desc) == RMT_UINT32)
-    {
-      uint64_t v = conv_integer(fmt, tok, next);
-      if (v > 0xFFFFFFFF) rb_raise(rb_eArgError, "Integer out of uint32 range: %ld", v);
-      *((uint32_t*)ptr) = (uint32_t)v;
-    }
-    else if (RecordModelType(desc) == RMT_UINT16)
-    {
-      uint64_t v = conv_integer(fmt, tok, next);
-      if (v > 0xFFFF) rb_raise(rb_eArgError, "Integer out of uint16 range: %ld", v);
-      *((uint16_t*)ptr) = (uint16_t)v;
-    }
-    else if (RecordModelType(desc) == RMT_UINT8)
-    {
-      uint64_t v = conv_integer(fmt, tok, next);
-      if (v > 0xFF) rb_raise(rb_eArgError, "Integer out of uint8 range: %ld", v);
-      *((uint8_t*)ptr) = (uint8_t)v;
-    }
-    else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
-    {
-      assert(fmt == 0);
-      parse_hexstring((uint8_t*)ptr, desc, (int)(next-tok), tok); 
-    }
-    else if (RecordModelType(desc) == RMT_DOUBLE)
-    {
-      assert(fmt == 0);
-      *((double*)ptr) = conv_str_to_double(tok, next);
-    }
-    else if (desc == 0)
-    {
-      assert(fmt == 0);
-      // ignore
-    }
-    else
-    {
-      rb_raise(rb_eArgError, "Wrong description");
-    }
+    field->set_from_string(self->ptr(), tok, next, fmt);
   }
 
   tok = parse_token(&next);
@@ -444,144 +479,6 @@ static VALUE RecordModelInstance_parse_line(VALUE self, VALUE _line, VALUE _desc
     return Qnil;
   else
     return INT2NUM(-1); // means, has additional items
-}
-
-static VALUE RecordModelInstance_set(VALUE self, VALUE _desc, VALUE _val)
-{
-  RecordModelInstance *mi;
-  Data_Get_Struct(self, RecordModelInstance, mi);
-  const RecordModel &model = *mi->model;
-
-  uint32_t desc = NUM2UINT(_desc);
-
-  assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
-
-  if (TYPE(_val) == T_DATA)
-  {
-    // we assume it's another RecordModelInstace!!!
-    RecordModelInstance *copy_from;
-    Data_Get_Struct(_val, RecordModelInstance, copy_from);
-    model.copy_field(mi, copy_from, desc); 
-    return Qnil;
-  }
-
-  const char *ptr = model.ptr_to_field(mi, desc);
-
-  if (RecordModelType(desc) == RMT_UINT64)
-  {
-    *((uint64_t*)ptr) = (uint64_t)NUM2ULONG(_val);
-  }
-  else if (RecordModelType(desc) == RMT_UINT32)
-  {
-    uint64_t v = NUM2UINT(_val);
-    if (v > 0xFFFFFFFF) rb_raise(rb_eArgError, "Integer out of uint32 range: %ld", v);
-    *((uint32_t*)ptr) = (uint32_t)v;
-  }
-  else if (RecordModelType(desc) == RMT_UINT16)
-  {
-    uint64_t v = NUM2UINT(_val);
-    if (v > 0xFFFF) rb_raise(rb_eArgError, "Integer out of uint16 range: %ld", v);
-    *((uint16_t*)ptr) = (uint16_t)v;
-  }
-  else if (RecordModelType(desc) == RMT_UINT8)
-  {
-    uint64_t v = NUM2UINT(_val);
-    if (v > 0xFF) rb_raise(rb_eArgError, "Integer out of uint8 range: %ld", v);
-    *((uint8_t*)ptr) = (uint8_t)v;
-  }
-  else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
-  {
-    Check_Type(_val, T_STRING);
-    parse_hexstring((uint8_t*)ptr, desc, RSTRING_LEN(_val), RSTRING_PTR(_val));
-  }
-  else if (RecordModelType(desc) == RMT_DOUBLE)
-  {
-    *((double*)ptr) = (double)NUM2DBL(_val);
-  }
-  else
-  {
-    rb_raise(rb_eArgError, "Wrong description");
-  }
-  return Qnil;
-}
-
-static VALUE RecordModelInstance_set_min_or_max(VALUE self, VALUE _desc, VALUE _set_min)
-{
-  RecordModelInstance *mi;
-  Data_Get_Struct(self, RecordModelInstance, mi);
-  const RecordModel &model = *mi->model;
-
-  uint32_t desc = NUM2UINT(_desc);
-
-  assert(RecordModelOffset(desc) + RecordModelTypeSize(desc) <= model.size);
-
-  const char *ptr = model.ptr_to_field(mi, desc);
-
-  bool set_min = RTEST(_set_min);
-
-  if (RecordModelType(desc) == RMT_UINT64)
-  {
-    *((uint64_t*)ptr) = set_min ? 0 : 0xFFFFFFFFFFFFFFFF;
-  }
-  else if (RecordModelType(desc) == RMT_UINT32)
-  {
-    *((uint32_t*)ptr) = set_min ? 0 : 0xFFFFFFFF;
-  }
-  else if (RecordModelType(desc) == RMT_UINT16)
-  {
-    *((uint16_t*)ptr) = set_min ? 0 : 0xFFFF;
-  }
-  else if (RecordModelType(desc) == RMT_UINT8)
-  {
-    *((uint8_t*)ptr) = set_min ? 0 : 0xFF;
-  }
-  else if (RecordModelTypeNoSize(desc) == RMT_HEXSTR)
-  {
-    memset((uint8_t*)ptr, set_min ? 0 : 0xFF, RecordModelTypeSize(desc));
-  }
-  else if (RecordModelType(desc) == RMT_DOUBLE)
-  {
-    *((double*)ptr) = set_min ? -INFINITY : INFINITY;
-  }
-  else
-  {
-    rb_raise(rb_eArgError, "Wrong description");
-  }
-  return Qnil;
-}
-
-static VALUE RecordModelInstance_zero(VALUE self)
-{
-  RecordModelInstance *mi;
-  Data_Get_Struct(self, RecordModelInstance, mi);
-  mi->model->zero_instance(mi);
-  return self;
-}
-
-static VALUE RecordModelInstance_dup(VALUE self)
-{
-  VALUE obj = RecordModelInstance__allocate2(rb_obj_class(self), false);
-
-  RecordModelInstance *oldi;
-  RecordModelInstance *newi;
-
-  Data_Get_Struct(self, RecordModelInstance, oldi);
-  Data_Get_Struct(obj, RecordModelInstance, newi);
-
-  oldi->model->copy_instance(newi, oldi);
-
-  return obj;
-}
-
-static VALUE RecordModelInstance_sum_values(VALUE self, VALUE other)
-{
-  RecordModelInstance *a;
-  RecordModelInstance *b;
-  Data_Get_Struct(self, RecordModelInstance, a);
-  Data_Get_Struct(other, RecordModelInstance, b);
-
-  a->model->sum_instance(a, b);
-  return self;
 }
 
 static VALUE RecordModel_to_class(VALUE self)
@@ -597,174 +494,172 @@ static VALUE RecordModel_to_class(VALUE self)
  * RecordModelInstanceArray
  */
 
-static void RecordModelInstanceArray__free(void *ptr)
+static
+void RecordModelInstanceArray__free(void *ptr)
 {
-  RecordModelInstanceArray *mia = (RecordModelInstanceArray*)ptr;
-
-  delete mia;
+  RecordModelInstanceArray *arr = (RecordModelInstanceArray*)ptr;
+  if (arr)
+  {
+    delete arr;
+  }
 }
 
-static VALUE RecordModelInstanceArray__allocate(VALUE klass)
+static
+void RecordModelInstanceArray__mark(void *ptr)
+{
+  RecordModelInstanceArray *arr = (RecordModelInstanceArray*)ptr;
+  if (arr)
+  {
+    mark_RecordModel(arr->model);
+  }
+}
+
+static
+VALUE RecordModelInstanceArray__allocate(VALUE klass)
 {
   VALUE obj;
-  // XXX: gc model class
-  obj = Data_Wrap_Struct(klass, NULL, RecordModelInstanceArray__free, new RecordModelInstanceArray());
+  obj = Data_Wrap_Struct(klass, RecordModelInstanceArray__mark, RecordModelInstanceArray__free, new RecordModelInstanceArray());
   return obj;
 }
 
-static VALUE RecordModelInstanceArray_initialize(VALUE self, VALUE modelklass, VALUE _n, VALUE _expandable)
+inline static
+RecordModelInstanceArray* get_RecordModelInstanceArray(VALUE obj)
 {
-  RecordModelInstanceArray *mia;
-  RecordModel *m;
+  RecordModelInstanceArray *ptr;
+  Data_Get_Struct(obj, RecordModelInstanceArray, ptr);
+  assert(ptr);
+  return ptr;
+}
 
-  Data_Get_Struct(self, RecordModelInstanceArray, mia);
-  VALUE model = RecordModelInstance__model(modelklass);
-  Data_Get_Struct(model, RecordModel, m);
+static
+VALUE RecordModelInstanceArray_initialize(VALUE _self, VALUE modelklass, VALUE _n, VALUE _expandable)
+{
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
 
-  if (mia->model || mia->ptr)
+  if (!self->is_virgin())
   {
     rb_raise(rb_eArgError, "Already initialized");
-    return Qnil;
   }
 
-  mia->model = m; // XXX: gc!
+  self->model = get_RecordModel(RecordModelInstance__model(modelklass));
+  self->expandable = RTEST(_expandable);
+  self->_entries = 0;
 
-  mia->_capacity = NUM2ULONG(_n);
-  if (mia->_capacity == 0)
-  {
-    rb_raise(rb_eArgError, "Invalid size of Array");
-    return Qnil;
-  }
-
-  mia->expandable = RTEST(_expandable);
-
-  mia->ptr = (char*)malloc(m->size * mia->_capacity);
-  if (!mia->ptr)
+  if (!self->allocate(NUM2ULONG(_n)))
   {
     rb_raise(rb_eArgError, "Failed to allocate memory");
-    return Qnil;
   }
 
-  mia->_entries = 0;
+  assert(self->_capacity > 0);
+  assert(self->_ptr);
 
   return Qnil;
 }
 
-static VALUE RecordModelInstanceArray_is_empty(VALUE self)
+static
+VALUE RecordModelInstanceArray_is_empty(VALUE _self)
 {
-  RecordModelInstanceArray *mia;
-  Data_Get_Struct(self, RecordModelInstanceArray, mia);
-
-  return mia->empty() ? Qtrue : Qfalse;
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+  return self->empty() ? Qtrue : Qfalse;
 }
 
-static VALUE RecordModelInstanceArray_is_full(VALUE self)
+static VALUE RecordModelInstanceArray_is_full(VALUE _self)
 {
-  RecordModelInstanceArray *mia;
-  Data_Get_Struct(self, RecordModelInstanceArray, mia);
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
 
-  if (mia->expandable)
+  if (self->expandable)
     rb_raise(rb_eArgError, "Called #full? for expandable RecordModelInstanceArray"); 
 
-  return mia->full() ? Qtrue : Qfalse;
+  return self->full() ? Qtrue : Qfalse;
 }
 
-static VALUE RecordModelInstanceArray_push(VALUE self, VALUE _mi)
+static
+VALUE RecordModelInstanceArray_push(VALUE _self, VALUE _rec)
 {
-  RecordModelInstanceArray *mia;
-  Data_Get_Struct(self, RecordModelInstanceArray, mia);
-  RecordModelInstance *mi;
-  Data_Get_Struct(_mi, RecordModelInstance, mi);
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+  const RecordModelInstance *rec = (const RecordModelInstance*)get_RecordModelInstance(_rec);
 
-  RecordModel *m = mia->model;
-
-  if (m != mi->model)
+  if (self->model != rec->model)
+  {
     rb_raise(rb_eArgError, "Model mismatch");
-
-  if (mia->full() && !mia->expand(m->size))
-  {
-    rb_raise(rb_eArgError, "Failed to expand array");
   }
-  assert(!mia->full());
 
-  memcpy(m->elemptr(mia, mia->_entries), mi->ptr, m->size);
-
-  mia->_entries += 1;
- 
-  return self;
-}
-
-static VALUE RecordModelInstanceArray_reset(VALUE self)
-{
-  RecordModelInstanceArray *mia;
-  Data_Get_Struct(self, RecordModelInstanceArray, mia);
-
-  mia->_entries = 0;
- 
-  return self;
-}
-
-static VALUE RecordModelInstanceArray_size(VALUE self)
-{
-  RecordModelInstanceArray *mia;
-  Data_Get_Struct(self, RecordModelInstanceArray, mia);
-
-  return ULONG2NUM(mia->_entries);
-}
-
-static VALUE RecordModelInstanceArray_capacity(VALUE self)
-{
-  RecordModelInstanceArray *mia;
-  Data_Get_Struct(self, RecordModelInstanceArray, mia);
-
-  return ULONG2NUM(mia->_capacity);
-}
-
-static VALUE RecordModelInstanceArray_expandable(VALUE self)
-{
-  RecordModelInstanceArray *mia;
-  Data_Get_Struct(self, RecordModelInstanceArray, mia);
-
-  if (mia->expandable)
-    return Qtrue;
-  else
-    return Qfalse;
-}
-
-static VALUE RecordModelInstanceArray_each(VALUE self, VALUE _mi)
-{
-  RecordModelInstanceArray *mia;
-  Data_Get_Struct(self, RecordModelInstanceArray, mia);
-
-  RecordModelInstance *mi;
-  Data_Get_Struct(_mi, RecordModelInstance, mi);
-
-  for (size_t i = 0; i < mia->_entries; ++i)
+  if (!self->push(rec))
   {
-    memcpy(mi->ptr, mi->model->elemptr(mia, i), mi->model->size);
-    rb_yield(_mi);
+    rb_raise(rb_eArgError, "Failed to push");
+  }
+ 
+  return _self;
+}
+
+static
+VALUE RecordModelInstanceArray_reset(VALUE _self)
+{
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+
+  self->reset();
+ 
+  return _self;
+}
+
+static
+VALUE RecordModelInstanceArray_size(VALUE _self)
+{
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+  return ULONG2NUM(self->entries());
+}
+
+static
+VALUE RecordModelInstanceArray_capacity(VALUE _self)
+{
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+  return ULONG2NUM(self->capacity());
+}
+
+static
+VALUE RecordModelInstanceArray_expandable(VALUE _self)
+{
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+  return self->expandable ? Qtrue : Qfalse;
+}
+
+static
+VALUE RecordModelInstanceArray_each(VALUE _self, VALUE _rec)
+{
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+  RecordModelInstance *rec = get_RecordModelInstance(_rec);
+
+  if (self->model != rec->model)
+  {
+    rb_raise(rb_eArgError, "Model mismatch");
+  }
+
+  for (size_t i = 0; i < self->entries(); ++i)
+  {
+    self->copy(rec, i);
+    rb_yield(_rec);
   }
 
   return Qnil;
 }
-
 
 extern "C"
 void Init_RecordModelExt()
 {
   cRecordModel = rb_define_class("RecordModel", rb_cObject);
   rb_define_alloc_func(cRecordModel, RecordModel__allocate);
-  rb_define_method(cRecordModel, "initialize", (VALUE (*)(...)) RecordModel_initialize, 2);
+  rb_define_method(cRecordModel, "initialize", (VALUE (*)(...)) RecordModel_initialize, 1);
   rb_define_method(cRecordModel, "to_class", (VALUE (*)(...)) RecordModel_to_class, 0);
   rb_define_method(cRecordModel, "size", (VALUE (*)(...)) RecordModel_size, 0);
 
   cRecordModelInstance = rb_define_class("RecordModelInstance", rb_cObject);
   rb_define_method(cRecordModelInstance, "[]", (VALUE (*)(...)) RecordModelInstance_get, 1);
   rb_define_method(cRecordModelInstance, "[]=", (VALUE (*)(...)) RecordModelInstance_set, 2);
-  rb_define_method(cRecordModelInstance, "set_min_or_max", (VALUE (*)(...)) RecordModelInstance_set_min_or_max, 2);
+  rb_define_method(cRecordModelInstance, "set_min", (VALUE (*)(...)) RecordModelInstance_set_min, 1);
+  rb_define_method(cRecordModelInstance, "set_max", (VALUE (*)(...)) RecordModelInstance_set_max, 1);
   rb_define_method(cRecordModelInstance, "zero!", (VALUE (*)(...)) RecordModelInstance_zero, 0);
   rb_define_method(cRecordModelInstance, "dup", (VALUE (*)(...)) RecordModelInstance_dup, 0);
-  rb_define_method(cRecordModelInstance, "sum_values!", (VALUE (*)(...)) RecordModelInstance_sum_values, 1);
+  rb_define_method(cRecordModelInstance, "add_values!", (VALUE (*)(...)) RecordModelInstance_add_values, 1);
   rb_define_method(cRecordModelInstance, "<=>", (VALUE (*)(...)) RecordModelInstance_cmp, 1);
   rb_define_method(cRecordModelInstance, "parse_line", (VALUE (*)(...)) RecordModelInstance_parse_line, 2);
   rb_define_method(cRecordModelInstance, "to_s", (VALUE (*)(...)) RecordModelInstance_to_s, 0);

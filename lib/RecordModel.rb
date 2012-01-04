@@ -4,174 +4,122 @@ class RecordModel
 
   class Builder
 
-    attr_accessor :attrs, :accs
+    #
+    # An array of:
+    #
+    #   [id, type, is_key, offset, length]
+    #
+    # entries.
+    #
+    attr_reader :fields
 
     def initialize
-      @attrs = [] 
-      @accs = {}
+      @fields = []
+      @current_offset = 0
       yield self
     end
 
     def key(id, type, sz=nil)
-      raise if @attrs.assoc(id)
-      @attrs << [id, :key, type, sz]
+      field(id, type, sz, true)
     end
 
     def val(id, type, sz=nil)
-      raise if @attrs.assoc(id)
-      @attrs << [id, :val, type, sz]
+      field(id, type, sz, false)
     end
 
-    def acc(id, type, *args)
-      case type
-      when :uint64_x2
-        id0, id1, _ = *args
-        raise if _
-        @accs[id] = %[
-          def #{id}() (self.#{id0} << 64) | self.#{id1} end
-          def #{id}=(v)
-            self.#{id0} = (v >> 64) & 0xFFFFFFFF_FFFFFFFF
-            self.#{id1} = (v)       & 0xFFFFFFFF_FFFFFFFF
-          end
-        ]
+    private
+
+    def field(id, type, sz, is_key)
+      size = type_size(type, sz) 
+      _add_field(id.to_sym, type, is_key, @current_offset, size)
+      @current_offset += size
+    end
+
+    def _add_field(id, type, is_key, offset, length)
+      raise if @fields.assoc(id)
+      @fields << [id, type, is_key, offset, length]
+    end
+
+    def type_size(type, sz)
+      size = case type
+      when :uint64 then 8
+      when :uint32 then 4
+      when :uint16 then 2
+      when :uint8  then 1
+      when :double then 8
+      when :hexstr then sz 
       else
         raise
       end
+      raise if sz and size != sz
+      return size
     end
-
   end
 
   def self.define(&block)
     b = Builder.new(&block)
 
-    offset = 0
-    info = {} 
-
-    a = {}
-    a[:key] = []
-    a[:val] = []
-
-    [:key, :val].each do |k|
-      b.attrs.each do |id, k_or_v, type, sz|
-        if k_or_v == k
-          desc = def_descr(offset, type, sz)
-          offset += type_size(type, sz)
-          a[k] << desc
-          info[id] = [desc, k]
-        end
-      end
-    end
-
-    model = new(a[:key], a[:val])
+    model = new(b.fields)
     klass = model.to_class
+    fields = b.fields
+    fields.freeze
 
-    info.each do |id, v|
-      desc = v[0]
-      klass.class_eval "def #{id}() self[#{desc}] end" 
-      klass.class_eval "def #{id}=(v) self[#{desc}] = v end" 
+    fields.each_with_index do |fld, i|
+      id = fld.first
+      klass.class_eval "def #{id}() self[#{i}] end" 
+      klass.class_eval "def #{id}=(v) self[#{i}] = v end" 
     end
 
-    b.accs.each do |id, code|
-      klass.class_eval code
-    end
-
-    info.freeze
-    klass.const_set(:INFO, info)
+    klass.const_set(:INFO, fields)
     klass.class_eval "def self.__info() INFO end"
     klass.class_eval "def __info() INFO end"
 
     return klass
   end
 
-  def self.def_descr(offset, type, sz=nil)
-    (offset << 16) | TYPES[type] | type_size(type, sz)
-  end
-
-  def self.type_size(type, sz)
-    if TYPES[type] & 0xFF == 0
-      raise if sz.nil?
-      return sz
-    else
-      raise if sz and TYPES[type] & 0xFF != sz
-      return TYPES[type] & 0xFF
-    end
-  end
-
-  TYPES = {
-    :uint64 => 0x0008,
-    :uint32 => 0x0004,
-    :uint16 => 0x0002,
-    :uint8 => 0x0001,
-    :double => 0x0108,
-    :hexstr => 0x0200
-  }
-
-end
-
-class RecordModelInstanceArray
-  alias old_initialize initialize
-
-  attr_reader :model_klass
-
-  def initialize(model_klass, n=16, expandable=true)
-    @model_klass = model_klass
-    old_initialize(model_klass, n, expandable)
-  end
-
-  alias old_each each
-  def each(instance=nil, &block)
-    old_each(instance || @model_klass.new, &block)
-  end
-
-  def inspect
-    [self.class, to_a]
-  end
-
-  def to_a
-    a = []
-    each {|i| a << i.dup}
-    a
-  end
 end
 
 class RecordModelInstance
   include Comparable
 
+  alias old_initialize initialize
+
   def initialize(hash=nil)
-    super()
+    old_initialize()
     hash.each {|k, v| self.send(:"#{k}=", v) } if hash
   end
 
   def to_hash
     h = {}
-    __info().each_key {|id| h[id] = send(id)}
+    __info().each {|fld| id = fld.first; h[id] = send(id)}
+    h
+  end
+
+  def _to_hash(is_key)
+    h = {}
+    __info().each {|fld|
+      if fld[2] == is_key
+        id = fld.first
+        h[id] = send(id)
+      end
+    }
     h
   end
 
   def keys_to_hash
-    h = {}
-    __info().each {|id,v| t = v[1]; h[id] = send(id) if t == :key}
-    h
+    _to_hash(true)
   end
 
   def values_to_hash
-    h = {}
-    __info().each {|id,v| t = v[1]; h[id] = send(id) if t == :val}
-    h
+    _to_hash(false)
   end
 
   def inspect
-    [self.class, keys_to_hash, values_to_hash]
+    [self.class, keys_to_hash(), values_to_hash()]
   end
 
   def self.make_array(n, expandable=true)
     RecordModelInstanceArray.new(self, n, expandable)
-  end
-
-  def self.__info_keys
-    __info().each do |id, v|
-      yield id, v[0] if v[1] == :key
-    end
   end
 
   def self.build_query(query={})
@@ -180,20 +128,23 @@ class RecordModelInstance
 
     used_keys = [] 
 
-    __info_keys() {|id, desc|
+    __info().each_with_index {|fld, idx|
+      next unless fld[2] # we only want keys!
+      id = fld.first
+ 
       if query.has_key?(id)
         used_keys << id
         case (q = query[id])
         when Range 
           raise ArgumentError if q.exclude_end?
-          from[desc] = q.first 
-          to[desc] = q.last
+          from[idx] = q.first 
+          to[idx] = q.last
         else
-          from[desc] = to[desc] = q
+          from[idx] = to[idx] = q
         end
       else
-        from.set_min_or_max(desc, true) # set min
-        to.set_min_or_max(desc, false) # set max
+        from.set_min(idx)
+        to.set_max(idx)
       end
     }
 
@@ -226,13 +177,15 @@ class RecordModelInstance
     args.map {|arg|
       case arg 
       when nil
-        0 # skip
+        nil # skip
       when Symbol
-        __info[arg].first
+        idx = __info().index {|fld| fld.first == arg}
+        idx || raise
       when Array
         id, type, extra = *arg
+        idx = __info().index {|fld| fld.first == id} || raise
         if type == :fixint
-          (((extra << 8) | 0x01) << 32) | __info[id].first
+          (((extra << 8) | 0x01) << 32) | idx
         else
           raise ArgumentError
         end
@@ -243,6 +196,33 @@ class RecordModelInstance
   end
 
 end
+
+class RecordModelInstanceArray
+  alias old_initialize initialize
+
+  attr_reader :model_klass
+
+  def initialize(model_klass, n=16, expandable=true)
+    @model_klass = model_klass
+    old_initialize(model_klass, n, expandable)
+  end
+
+  alias old_each each
+  def each(instance=nil, &block)
+    old_each(instance || @model_klass.new, &block)
+  end
+
+  def inspect
+    [self.class, to_a]
+  end
+
+  def to_a
+    a = []
+    each {|i| a << i.dup}
+    a
+  end
+end
+
 
 class RecordModel::LineParser
   require 'thread'
