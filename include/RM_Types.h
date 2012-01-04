@@ -20,6 +20,10 @@ struct RM_Type
   virtual VALUE to_ruby(const void *a) = 0;
   virtual void set_from_ruby(void *a, VALUE val) = 0;
   virtual void set_from_string(void *a, const char *s, const char *e) = 0;
+  virtual void set_from_memory(void *a, const void *ptr) = 0;
+
+  // ptr must point to a valid memory frame of size()
+  virtual void copy_to_memory(const void *a, void *ptr) = 0;
 
   virtual void set_min(void *a) = 0;
   virtual void set_max(void *a) = 0;
@@ -82,6 +86,16 @@ struct RM_UInt : RM_Type
   virtual void set_from_string(void *a, const char *s, const char *e)
   {
     _set_uint(a, conv_str_to_uint(s, e));
+  }
+
+  virtual void set_from_memory(void *a, const void *ptr)
+  {
+    element(a) = *((const NT*)ptr);
+  }
+
+  virtual void copy_to_memory(const void *a, void *ptr)
+  {
+    *((NT*)ptr) = element(a); 
   }
 
   virtual void set_min(void *a)
@@ -214,7 +228,17 @@ struct RM_DOUBLE : RM_Type
   {
     element(a) = conv_str_to_double(s, e);
   }
- 
+
+  virtual void set_from_memory(void *a, const void *ptr)
+  {
+    element(a) = *((const double*)ptr);
+  }
+
+  virtual void copy_to_memory(const void *a, void *ptr)
+  {
+    *((double*)ptr) = element(a); 
+  }
+
   virtual void set_min(void *a)
   {
     element(a) = std::numeric_limits<double>::min();
@@ -329,6 +353,16 @@ struct RM_HEXSTR : RM_Type
   virtual void set_from_string(void *a, const char *s, const char *e)
   {
     parse_hexstring(element_ptr(a), (int)(e-s), s);
+  }
+
+  virtual void set_from_memory(void *a, const void *ptr)
+  {
+    memcpy(element_ptr(a), ptr, size());
+  }
+
+  virtual void copy_to_memory(const void *a, void *ptr)
+  {
+    memcpy(ptr, element_ptr(a), size());
   }
 
   virtual void set_min(void *a)

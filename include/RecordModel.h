@@ -15,9 +15,14 @@ struct RecordModel
   RM_Type **_values;
   size_t _num_fields;
   size_t _size;
+  size_t _size_keys;
+  size_t _size_values;
+
   VALUE _rm_obj; // corresponding Ruby object (needed for GC)
 
   inline size_t size() { return _size; }
+  inline size_t size_keys() { return _size_keys; }
+  inline size_t size_values() { return _size_values; }
 
   RecordModel()
   {
@@ -26,6 +31,8 @@ struct RecordModel
     _values = NULL;
     _num_fields = 0;
     _size = 0;
+    _size_keys = 0;
+    _size_values = 0;
     _rm_obj = Qnil;
   }
 
@@ -37,7 +44,8 @@ struct RecordModel
 
   bool is_virgin()
   {
-    return (_all_fields == NULL && _keys == NULL && _values == NULL && _num_fields == 0 && _size == 0 /*&& _rm_obj == Qnil*/);
+    return (_all_fields == NULL && _keys == NULL && _values == NULL && _num_fields == 0 && _size == 0 &&
+            _size_keys == 0 && _size_values == 0 /*&& _rm_obj == Qnil*/);
   }
 
   ~RecordModel()
@@ -76,7 +84,7 @@ struct RecordModelInstance
   inline void *ptr() { return _ptr; }
   inline const void *ptr() const { return (const void*)_ptr; }
 
-  inline int size() { return model->_size; }
+  inline int size() { return model->size(); }
 
   RecordModelInstance(RecordModel *model, void *ptr)
   {

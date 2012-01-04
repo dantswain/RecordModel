@@ -139,7 +139,9 @@ VALUE RecordModel_initialize(VALUE self, VALUE fields)
   for (size_t i = 0; i <= num_keys; ++i) model->_keys[i] = NULL;
   for (size_t i = 0; i <= num_values; ++i) model->_values[i] = NULL;
 
-  uint32_t max_sz = 0;
+  size_t max_sz = 0;
+  size_t size_keys = 0;
+  size_t size_values = 0;
 
   size_t key_i = 0;
   size_t val_i = 0;
@@ -204,24 +206,30 @@ VALUE RecordModel_initialize(VALUE self, VALUE fields)
 
     model->_all_fields[i] = t;
 
+    assert(length == t->size());
+
     if (RTEST(e_is_key))
     {
       model->_keys[key_i++] = t;
+      size_keys += t->size();
     }
     else
     {
       model->_values[val_i++] = t;
+      size_values += t->size();
     }
 
-    assert(length == t->size());
-
-    max_sz = std::max(max_sz, (uint32_t)(t->offset() + t->size()));
+    max_sz = std::max(max_sz, (size_t)(t->offset() + t->size()));
   }
 
   assert(key_i == num_keys && val_i == num_values);
 
+  assert(max_sz >= size_keys + size_values);
+
   model->_num_fields = num_fields;
   model->_size = max_sz;
+  model->_size_keys = size_keys;
+  model->_size_values = size_values;
 
   return Qnil;
 }
