@@ -19,7 +19,7 @@ struct RM_Type
 
   virtual VALUE to_ruby(const void *a) = 0;
   virtual void set_from_ruby(void *a, VALUE val) = 0;
-  virtual void set_from_string(void *a, const char *s, const char *e, uint32_t fmt) = 0;
+  virtual void set_from_string(void *a, const char *s, const char *e) = 0;
 
   virtual void set_min(void *a) = 0;
   virtual void set_max(void *a) = 0;
@@ -54,6 +54,11 @@ struct RM_UInt : RM_Type
     element(a) = (NT)v;
   }
 
+  virtual void set_from_ruby(void *a, VALUE val)
+  {
+    _set_uint(a, (uint64_t)NUM2ULONG(val));
+  }
+
   // XXX: handle conversion failures
   static uint64_t conv_str_to_uint(const char *s, const char *e)
   {
@@ -74,75 +79,9 @@ struct RM_UInt : RM_Type
     return v;
   }
 
-  // XXX: handle conversion failures
-  static uint64_t conv_str_to_uint2(const char *s, const char *e, int precision)
+  virtual void set_from_string(void *a, const char *s, const char *e)
   {
-    uint64_t v = 0;
-    int post_digits = -1; 
-    for (; s != e; ++s)
-    {
-      char c = *s;
-      if (c >= '0' && c <= '9')
-      {
-        v *= 10;
-        v += (c-'0');
-        if (post_digits >= 0)
-          ++post_digits;
-      }
-      else if (c == '.')
-      {
-        if (post_digits >= 0)
-          return 0; // invalid
-        // ignore
-        post_digits = 0;
-      }
-      else
-      {
-        return 0; // invalid
-      }
-    }
-
-    for (; post_digits < precision; ++post_digits)
-    {
-      v *= 10;
-    }
-
-    for (; post_digits > precision; --post_digits)
-    {
-      v /= 10;
-    }
- 
-    return v;
-  }
-
-  #define FMT_FIXPOINT_INT 0x01
-
-  static uint64_t conv_integer(uint32_t fmt, const char *s, const char *e)
-  {
-    uint64_t v;
-    if (fmt == 0)
-    {
-       v = conv_str_to_uint(s, e);
-    }
-    else if ((fmt&0xFF) == FMT_FIXPOINT_INT)
-    {
-      v = conv_str_to_uint2(s, e, fmt >> 8);
-    }
-    else
-    {
-      assert(false);
-    }
-    return v;
-  }
-
-  virtual void set_from_ruby(void *a, VALUE val)
-  {
-    _set_uint(a, (uint64_t)NUM2ULONG(val));
-  }
-
-  virtual void set_from_string(void *a, const char *s, const char *e, uint32_t fmt)
-  {
-    _set_uint(a, (uint64_t)conv_integer(fmt, s, e));
+    _set_uint(a, conv_str_to_uint(s, e));
   }
 
   virtual void set_min(void *a)
@@ -191,6 +130,58 @@ struct RM_UINT16 : RM_UInt<uint16_t> {};
 struct RM_UINT32 : RM_UInt<uint32_t> {};
 struct RM_UINT64 : RM_UInt<uint64_t> {};
 
+// with millisecond precision
+struct RM_TIMESTAMP : RM_UInt<uint64_t>
+{
+  // XXX: handle conversion failures
+  static uint64_t conv_str_to_uint2(const char *s, const char *e, int precision)
+  {
+    uint64_t v = 0;
+    int post_digits = -1; 
+    for (; s != e; ++s)
+    {
+      char c = *s;
+      if (c >= '0' && c <= '9')
+      {
+        v *= 10;
+        v += (c-'0');
+        if (post_digits >= 0)
+          ++post_digits;
+      }
+      else if (c == '.')
+      {
+        if (post_digits >= 0)
+        {
+          return 0; // invalid
+        }
+        // ignore
+        post_digits = 0;
+      }
+      else
+      {
+        return 0; // invalid
+      }
+    }
+
+    for (; post_digits < precision; ++post_digits)
+    {
+      v *= 10;
+    }
+
+    for (; post_digits > precision; --post_digits)
+    {
+      v /= 10;
+    }
+ 
+    return v;
+  }
+
+  virtual void set_from_string(void *a, const char *s, const char *e)
+  {
+    _set_uint(a, conv_str_to_uint2(s, e, 3));
+  }
+};
+
 struct RM_DOUBLE : RM_Type 
 {
   inline double *element_ptr(void *data) { return (double*) (((char*)data)+offset()); }
@@ -219,21 +210,18 @@ struct RM_DOUBLE : RM_Type
     return v;
   }
 
-  virtual void set_from_string(void *a, const char *s, const char *e, uint32_t fmt)
+  virtual void set_from_string(void *a, const char *s, const char *e)
   {
-    assert(fmt == 0);
     element(a) = conv_str_to_double(s, e);
   }
  
   virtual void set_min(void *a)
   {
-    // XXX: -INF
     element(a) = std::numeric_limits<double>::min();
   }
 
   virtual void set_max(void *a)
   {
-    // XXX: +INF
     element(a) = std::numeric_limits<double>::max();
   }
 
@@ -338,9 +326,8 @@ struct RM_HEXSTR : RM_Type
     parse_hexstring(element_ptr(a), RSTRING_LEN(val), RSTRING_PTR(val));
   }
 
-  virtual void set_from_string(void *a, const char *s, const char *e, uint32_t fmt)
+  virtual void set_from_string(void *a, const char *s, const char *e)
   {
-    assert(fmt == 0);
     parse_hexstring(element_ptr(a), (int)(e-s), s);
   }
 

@@ -184,6 +184,10 @@ VALUE RecordModel_initialize(VALUE self, VALUE fields)
     {
       t = new RM_UINT8();
     }
+    else if (ID2SYM(rb_intern("timestamp")) == e_type)
+    {
+      t = new RM_TIMESTAMP();
+    }
     else if (ID2SYM(rb_intern("double")) == e_type)
     {
       t = new RM_DOUBLE();
@@ -415,6 +419,22 @@ VALUE RecordModelInstance_add_values(VALUE self, VALUE other)
   return self;
 }
 
+static
+VALUE RecordModelInstance_set_from_string(VALUE _self, VALUE field_idx, VALUE str)
+{
+  Check_Type(str, T_STRING);
+  RecordModelInstance *self = get_RecordModelInstance(_self);
+  RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
+
+  if (field == NULL)
+  {
+    rb_raise(rb_eArgError, "Wrong index");
+  }
+
+  field->set_from_string(self->ptr(), RSTRING_PTR(str), RSTRING_END(str));
+  return _self;
+}
+
 const char *parse_token(const char **src)
 {
   const char *ptr = *src;
@@ -462,16 +482,12 @@ VALUE RecordModelInstance_parse_line(VALUE _self, VALUE _line, VALUE _field_arr)
     if (NIL_P(e))
       continue;
 
-    uint64_t item = NUM2ULONG(e);
-    uint32_t field_idx = item & 0xFFFFFFFF;
-    uint32_t fmt = item >> 32;
-
-    RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
+    RM_Type *field = self->model->get_field(FIX2UINT(e));
     if (field == NULL)
     {
       rb_raise(rb_eArgError, "Wrong index");
     }
-    field->set_from_string(self->ptr(), tok, next, fmt);
+    field->set_from_string(self->ptr(), tok, next);
   }
 
   tok = parse_token(&next);
@@ -657,6 +673,7 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstance, "[]=", (VALUE (*)(...)) RecordModelInstance_set, 2);
   rb_define_method(cRecordModelInstance, "set_min", (VALUE (*)(...)) RecordModelInstance_set_min, 1);
   rb_define_method(cRecordModelInstance, "set_max", (VALUE (*)(...)) RecordModelInstance_set_max, 1);
+  rb_define_method(cRecordModelInstance, "set_from_string", (VALUE (*)(...)) RecordModelInstance_set_from_string, 2);
   rb_define_method(cRecordModelInstance, "zero!", (VALUE (*)(...)) RecordModelInstance_zero, 0);
   rb_define_method(cRecordModelInstance, "dup", (VALUE (*)(...)) RecordModelInstance_dup, 0);
   rb_define_method(cRecordModelInstance, "add_values!", (VALUE (*)(...)) RecordModelInstance_add_values, 1);

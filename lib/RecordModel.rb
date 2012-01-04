@@ -46,6 +46,7 @@ class RecordModel
       when :uint32 then 4
       when :uint16 then 2
       when :uint8  then 1
+      when :timestamp then 8
       when :double then 8
       when :hexstr then sz 
       else
