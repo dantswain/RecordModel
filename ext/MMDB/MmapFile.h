@@ -81,13 +81,16 @@ public:
     if (capacity < 1L<<20)
       capacity = 1L<<20;
 
-    err = ftruncate(fh, capacity); 
-    if (err != 0)
+    if (!readonly)
     {
-      LOG_ERR("ftruncate failed");
-      ::close(fh);
-      return false;
-    }
+      err = ftruncate(fh, capacity); 
+      if (err != 0)
+      {
+        LOG_ERR("ftruncate failed");
+        ::close(fh);
+        return false;
+      }
+   }
 
     void *ptr = mmap(NULL, capacity, PROT_READ | (readonly ? 0 : PROT_WRITE), MAP_SHARED, fh, 0);
     if (ptr == MAP_FAILED)
@@ -115,9 +118,12 @@ public:
     }
     if (_fh != -1)
     {
-      if (ftruncate(_fh, _size) != 0)
+      if (!_readonly)
       {
-        LOG_ERR("close: ftruncate failed");
+        if (ftruncate(_fh, _size) != 0)
+        {
+          LOG_ERR("close: ftruncate failed");
+        }
       }
       ::close(_fh);
       _fh = -1;
