@@ -301,7 +301,7 @@ VALUE MMDB_put_bulk(VALUE self, VALUE arr)
 
   Data_Get_Struct(self, MMDB, p.db);
   Data_Get_Struct(arr, RecordModelInstanceArray, p.arr);
-  p.verify = true;
+  p.verify = false;
 
   return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }
