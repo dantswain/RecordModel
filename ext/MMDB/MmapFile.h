@@ -115,6 +115,7 @@ public:
     }
     if (_fh != -1)
     {
+      ftruncate(_fh, _size);
       ::close(_fh);
       _fh = -1;
     }
