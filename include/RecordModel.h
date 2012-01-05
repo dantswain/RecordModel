@@ -215,7 +215,7 @@ struct RecordModelInstance
   {
     for (int i = 0; model->_keys[i] != NULL; ++i)
     {
-      int cmp = model->_keys[i]->compare(ptr(), other->ptr());
+      int cmp = model->_keys[i]->compare(a, b);
       if (cmp != 0) return cmp;
     }
     return 0;
