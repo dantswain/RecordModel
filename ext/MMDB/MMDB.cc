@@ -347,22 +347,6 @@ struct Search
     }
   }
 
-#if 0
-  int keys_in_range_pos(uint64_t index, const void *from, const void *to)
-  {
-    for (int i = 0; i < (int)db->num_keys; ++i)
-    {
-      RM_Type *field = model->_keys[i];
-      const void *c = db->db_keys[i]->ptr_read_element(index, field->size());
-
-      int cmp = field->memory_between(c, from, to);
-      if (cmp < 0) return -i-1;
-      if (cmp > 0) return i+1;
-    }
-    return 0;
-  }
-#endif
-
   int64_t bin_search(int64_t l, int64_t r, const void *key_ptr)
   {
     int64_t m;
