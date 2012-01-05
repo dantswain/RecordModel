@@ -37,7 +37,7 @@ public:
 
   bool valid() { return (_fh != -1 && _ptr != NULL); }
 
-  bool open(const char *path, size_t file_length, bool readonly)
+  bool open(const char *path, size_t size, size_t capacity, bool readonly)
   {
     int err;
 
@@ -71,18 +71,17 @@ public:
       return false;
     }
 
-    if (buf.st_size < 0 || file_length > (size_t)buf.st_size)
+    if (buf.st_size < 0 || size > (size_t)buf.st_size)
     {
       LOG_ERR("wrong buf.st_size");
       ::close(fh);
       return false;
     }
 
-    size_t capa = file_length;
-    if (capa < 16*4096)
-      capa = 16*4096;
+    if (capacity < 1L<<20)
+      capacity = 1L<<20;
 
-    err = ftruncate(fh, capa); 
+    err = ftruncate(fh, capacity); 
     if (err != 0)
     {
       LOG_ERR("ftruncate failed");
@@ -90,7 +89,7 @@ public:
       return false;
     }
 
-    void *ptr = mmap(NULL, capa, PROT_READ | (readonly ? 0 : PROT_WRITE), MAP_SHARED, fh, 0);
+    void *ptr = mmap(NULL, capacity, PROT_READ | (readonly ? 0 : PROT_WRITE), MAP_SHARED, fh, 0);
     if (ptr == MAP_FAILED)
     {
       LOG_ERR("mmap failed");
@@ -99,8 +98,8 @@ public:
     }
 
     _fh = fh;
-    _size = file_length;
-    _capa = capa;
+    _size = size;
+    _capa = capacity;
     _readonly = readonly;
     _ptr = ptr;
 

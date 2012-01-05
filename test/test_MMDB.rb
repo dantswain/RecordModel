@@ -30,14 +30,17 @@ class TestRecordModelMMDB < Test::Unit::TestCase
   def test_write
     `rm -rf ./tmp.test/db`
     `mkdir -p ./tmp.test/db`
-    db = RecordModelMMDB.open(@klass.model, "./tmp.test/db/", 0, 0, false) 
+    db = RecordModelMMDB.open(@klass.model, "./tmp.test/db/", 0, 100, 0, 100*1_000_000, false) 
 
-    arr = @klass.make_array(1024)
+    arr = @klass.make_array(1_000_000)
     1000_000.times do |i|
       arr << @klass.new(:d => i)
     end
 
-    db.put_bulk(arr)
+    100.times do |i|
+      p i
+      db.put_bulk(arr)
+    end
 
     db.close
   end

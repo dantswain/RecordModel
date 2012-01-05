@@ -72,7 +72,7 @@ struct MMDB
   /*
    * Note that path_prefix must include the trailing '/' if you want to store the databases under it's own directory.
    */
-  bool open(RecordModel *_model, const char *path_prefix, size_t _num_slices, size_t _num_records, bool _readonly)
+  bool open(RecordModel *_model, const char *path_prefix, size_t _num_slices, size_t _hint_slices, size_t _num_records, size_t _hint_records, bool _readonly)
   {
     using namespace std;
 
@@ -91,13 +91,13 @@ struct MMDB
     // open slices file
     snprintf(name, name_sz, "%sslices_4", path_prefix);
     db_slices = new MmapFile();
-    ok = db_slices->open(name, sizeof(uint32_t)*num_slices, readonly);
+    ok = db_slices->open(name, sizeof(uint32_t)*num_slices, sizeof(uint32_t)*_hint_slices, readonly);
     if (!ok) goto fail;
 
     // open data file
     snprintf(name, name_sz, "%sdata_%ld", path_prefix, model->size_values());
     db_data = new MmapFile();
-    ok = db_data->open(name, model->size_values()*num_records, readonly);
+    ok = db_data->open(name, model->size_values()*num_records, model->size_values()*_hint_records, readonly);
     if (!ok) goto fail;
 
     // open key files
@@ -111,7 +111,7 @@ struct MMDB
       assert(field);
       snprintf(name, name_sz, "%sk%ld_%d", path_prefix, i, field->size());
       db_keys[i] = new MmapFile();
-      ok = db_keys[i]->open(name, field->size()*num_records, readonly);
+      ok = db_keys[i]->open(name, field->size()*num_records, field->size()*_hint_records, readonly);
       if (!ok) goto fail;
     }
 
@@ -189,7 +189,7 @@ MMDB* MMDB__get(VALUE self) {
 }
 
 static
-VALUE MMDB__open(VALUE klass, VALUE recordmodel, VALUE path_prefix, VALUE num_slices, VALUE num_records, VALUE readonly)
+VALUE MMDB__open(VALUE klass, VALUE recordmodel, VALUE path_prefix, VALUE num_slices, VALUE hint_slices, VALUE num_records, VALUE hint_records, VALUE readonly)
 {
   Check_Type(path_prefix, T_STRING);
 
@@ -198,7 +198,7 @@ VALUE MMDB__open(VALUE klass, VALUE recordmodel, VALUE path_prefix, VALUE num_sl
 
   MMDB *mdb = new MMDB;
 
-  bool ok = mdb->open(model, RSTRING_PTR(path_prefix), NUM2ULONG(num_slices), NUM2ULONG(num_records), RTEST(readonly));
+  bool ok = mdb->open(model, RSTRING_PTR(path_prefix), NUM2ULONG(num_slices), NUM2ULONG(hint_slices), NUM2ULONG(num_records), NUM2ULONG(hint_records), RTEST(readonly));
   if (!ok)
   {
     delete mdb;
@@ -550,7 +550,7 @@ extern "C"
 void Init_RecordModelMMDBExt()
 {
   VALUE cMMDB = rb_define_class("RecordModelMMDB", rb_cObject);
-  rb_define_singleton_method(cMMDB, "open", (VALUE (*)(...)) MMDB__open, 5);
+  rb_define_singleton_method(cMMDB, "open", (VALUE (*)(...)) MMDB__open, 7);
   rb_define_method(cMMDB, "close", (VALUE (*)(...)) MMDB_close, 0);
   rb_define_method(cMMDB, "put_bulk", (VALUE (*)(...)) MMDB_put_bulk, 1);
   //rb_define_method(cMMDB, "query", (VALUE (*)(...)) RecordDB_query, 3);
