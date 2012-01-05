@@ -211,9 +211,8 @@ struct RecordModelInstance
     model->_keys[i]->inc(ptr());
   }
 
-  int compare_keys(const RecordModelInstance *other)
+  inline static int compare_keys_ptr(RecordModel *model, const void *a, const void *b)
   {
-    assert(other->model == model);
     for (int i = 0; model->_keys[i] != NULL; ++i)
     {
       int cmp = model->_keys[i]->compare(ptr(), other->ptr());
@@ -221,20 +220,24 @@ struct RecordModelInstance
     }
     return 0;
   }
+  
+  int compare_keys(const RecordModelInstance *other)
+  {
+    assert(other->model == model);
+    return compare_keys_ptr(model, ptr(), other->ptr());
+  }
 };
 
 struct RecordModelInstanceArraySorter
 {
-  RecordModelInstance rec_a;
-  RecordModelInstance rec_b;
+  RecordModel *model;
   void *base_ptr;
   size_t element_size;
  
   bool operator()(uint32_t ai, uint32_t bi)
   {
-    rec_a._ptr = ((char*)base_ptr) + element_size*ai;
-    rec_b._ptr = ((char*)base_ptr) + element_size*bi;
-    return (rec_a.compare_keys(&rec_b) < 0);
+    return (RecordModelInstance::compare_keys_ptr(model, 
+      ((char*)base_ptr) + element_size*ai, ((char*)base_ptr) + element_size*bi) < 0);
   }
 };
 
@@ -361,8 +364,7 @@ struct RecordModelInstanceArray
   void sort()
   {
     RecordModelInstanceArraySorter s;
-    s.rec_a.model = model;
-    s.rec_b.model = model;
+    s.model = model;
     s.base_ptr = _ptr;
     s.element_size = element_size(); 
     std::sort(sort_arr.begin(), sort_arr.end(), s);
