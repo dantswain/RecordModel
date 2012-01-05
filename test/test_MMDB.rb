@@ -22,25 +22,27 @@ class TestRecordModelMMDB < Test::Unit::TestCase
 
   def test_open
     `mkdir -p ./tmp.test/db`
-    db = RecordModelMMDB.open(@klass.model, "./tmp.test/db/", 0, 0, false) 
+    db = RecordModelMMDB.open(@klass.model, "./tmp.test/db/", 0, 0, 0, 0, false) 
     db.close
     `rm -rf ./tmp.test/db`
   end
 
-  def test_write
+  def test_write_and_query
     `rm -rf ./tmp.test/db`
     `mkdir -p ./tmp.test/db`
-    db = RecordModelMMDB.open(@klass.model, "./tmp.test/db/", 0, 100, 0, 100*1_000_000, false) 
+    db = RecordModelMMDB.open(@klass.model, "./tmp.test/db/", 0, 1, 0, 100_000, false) 
 
-    arr = @klass.make_array(1_000_000)
-    1000_000.times do |i|
-      arr << @klass.new(:d => i)
+    arr = @klass.make_array(100_000)
+    100_000.times do |i|
+      arr << @klass.new(:a => i % 2, :d => i)
     end
 
-    100.times do |i|
-      p i
-      db.put_bulk(arr)
-    end
+    db.put_bulk(arr)
+
+    assert_equal 6, @klass.db_query_to_a(db, :d => 5 .. 10).size
+    assert_equal 3, @klass.db_query_to_a(db, :a => 0, :d => 5 .. 10).size
+    assert_equal 3, @klass.db_query_to_a(db, :a => 1, :d => 5 .. 10).size
+    assert_equal 0, @klass.db_query_to_a(db, :a => 2, :d => 5 .. 10).size
 
     db.close
   end

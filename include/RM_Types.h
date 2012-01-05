@@ -32,7 +32,12 @@ struct RM_Type
   virtual void inc(void *a) = 0;
   virtual void copy(void *a, const void *b) = 0;
   virtual int between(const void *c, const void *l, const void *r) = 0;
+  virtual int memory_between(const void *mem, const void *l, const void *r) = 0;
+
   virtual int compare(const void *a, const void *b) = 0;
+
+  // mem is not a pointer to a record, but to the field itself
+  virtual int compare_with_memory(const void *a, const void *mem) = 0;
 };
 
 template <typename NT>
@@ -130,6 +135,14 @@ struct RM_UInt : RM_Type
     return 0;
   }
 
+  virtual int memory_between(const void *mem, const void *l, const void *r)
+  {
+    NT c = *((const NT*)mem);
+    if (c < element(l)) return -1;
+    if (c > element(r)) return 1;
+    return 0;
+  }
+
   virtual int compare(const void *a, const void *b)
   {
     if (element(a) < element(b)) return -1;
@@ -137,6 +150,13 @@ struct RM_UInt : RM_Type
     return 0;
   }
 
+  virtual int compare_with_memory(const void *a, const void *mem)
+  {
+    NT b = *((const NT*)mem);
+    if (element(a) < b) return -1;
+    if (element(a) > b) return 1;
+    return 0;
+  }
 };
 
 struct RM_UINT8 : RM_UInt<uint8_t> {}; 
@@ -271,10 +291,26 @@ struct RM_DOUBLE : RM_Type
     return 0;
   }
 
+  virtual int memory_between(const void *mem, const void *l, const void *r)
+  {
+    double c = *((const double*)mem);
+    if (c < element(l)) return -1;
+    if (c > element(r)) return 1;
+    return 0;
+  }
+
   virtual int compare(const void *a, const void *b)
   {
     if (element(a) < element(b)) return -1;
     if (element(a) > element(b)) return 1;
+    return 0;
+  }
+
+  virtual int compare_with_memory(const void *a, const void *mem)
+  {
+    double b = *((const double*)mem);
+    if (element(a) < b) return -1;
+    if (element(a) > b) return 1;
     return 0;
   }
 };
@@ -405,12 +441,8 @@ struct RM_HEXSTR : RM_Type
     memcpy(element_ptr(a), element_ptr(b), size());
   }
 
-  virtual int between(const void *c, const void *l, const void *r)
+  inline int between_pointers(const uint8_t *cp, const uint8_t *lp, const uint8_t *rp)
   {
-    const uint8_t *cp = element_ptr(c);
-    const uint8_t *lp = element_ptr(l);
-    const uint8_t *rp = element_ptr(r);
-
     // XXX: Check correctness
     for (int k=0; k < size(); ++k)
     {
@@ -425,17 +457,34 @@ struct RM_HEXSTR : RM_Type
     return 0;
   }
 
-  virtual int compare(const void *a, const void *b)
+  virtual int between(const void *c, const void *l, const void *r)
   {
-    const uint8_t *ap = element_ptr(a);
-    const uint8_t *bp = element_ptr(b);
- 
+    return between_pointers(element_ptr(c), element_ptr(l), element_ptr(r));
+  }
+
+  virtual int memory_between(const void *mem, const void *l, const void *r)
+  {
+    return between_pointers((const uint8_t*)mem, element_ptr(l), element_ptr(r));
+  }
+
+  inline int compare_pointers(const uint8_t *ap, const uint8_t *bp)
+  {
     for (int i=0; i < size(); ++i)
     {
       if (ap[i] < bp[i]) return -1;
       if (ap[i] > bp[i]) return 1;
     }
     return 0;
+  }
+
+  virtual int compare(const void *a, const void *b)
+  {
+    return compare_pointers(element_ptr(a), element_ptr(b));
+  }
+
+  virtual int compare_with_memory(const void *a, const void *mem)
+  {
+    return compare_pointers(element_ptr(a), (const uint8_t*)mem);
   }
 
 };

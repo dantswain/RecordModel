@@ -173,18 +173,23 @@ struct RecordModelInstance
   }
 
   /*
-   * Returns i >= 0, if key is not in range, or -1 if it is in range. If i >= 0, then this is the key position
-   * that is not in range.
+   * Returns 0 if all keys are between the corresponding keys of "l" and "r".
+   *
+   * Returns < 0 if record < "l".
+   *
+   * Returns > 0 if record > "r".
+   *
+   * The key which is out of range is returned in "int &i".
    */
-  int keys_in_range_pos(const RecordModelInstance *l, const RecordModelInstance *r) const
+  int keys_in_range_pos(const RecordModelInstance *l, const RecordModelInstance *r, int &i) const
   {
     assert(l->model == model && r->model == model);
 
-    for (int i = 0; model->_keys[i] != NULL; ++i)
+    for (i = 0; model->_keys[i] != NULL; ++i)
     {
       int cmp = model->_keys[i]->between(ptr(), l->ptr(), r->ptr());
-      if (cmp < 0) return -i-1;
-      if (cmp > 0) return i+1;
+      if (cmp < 0) return -1;
+      if (cmp > 0) return 1;
     }
     return 0;
   }
@@ -194,7 +199,8 @@ struct RecordModelInstance
    */
   bool keys_in_range(const RecordModelInstance *l, const RecordModelInstance *r) const
   {
-    return (keys_in_range_pos(l, r) == 0);
+    int keypos;
+    return (keys_in_range_pos(l, r, keypos) == 0);
   }
 
   void copy_keys(const RecordModelInstance *from, int i)

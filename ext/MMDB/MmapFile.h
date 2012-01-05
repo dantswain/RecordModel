@@ -115,7 +115,10 @@ public:
     }
     if (_fh != -1)
     {
-      ftruncate(_fh, _size);
+      if (ftruncate(_fh, _size) != 0)
+      {
+        LOG_ERR("close: ftruncate failed");
+      }
       ::close(_fh);
       _fh = -1;
     }
@@ -186,15 +189,26 @@ public:
     return ptr_write_at(_size, length);
   }
 
-  void *ptr_read_at(size_t offset, size_t length)
+  inline const void *ptr_read_at(size_t offset, size_t length)
   {
     assert(_ptr);
     if (offset + length > _size)
       return NULL;
 
-    return (void*)(((char*)_ptr) + offset);
+    return (const void*)(((char*)_ptr) + offset);
   }
 
+  template <typename T>
+  T ptr_read_element_at(size_t index)
+  {
+    return *((const T*)ptr_read_element(index, sizeof(T)));
+  }
+
+  const void *ptr_read_element(size_t index, size_t length)
+  {
+    return ptr_read_at(length*index, length);
+  }
+ 
   /*
    * Very expensive operation!
    */

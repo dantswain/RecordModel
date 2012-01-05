@@ -160,6 +160,14 @@ class RecordModelInstance
     db.query(from, to, item, &block)
   end
 
+  def self.db_query_to_a(db, query={})
+    arr = []
+    db_query(db, query) do |item|
+      arr << item.dup
+    end
+    arr
+  end
+
   def self.db_query_into(db, itemarr=nil, query={})
     from, to = build_query(query)
     item = new()

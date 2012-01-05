@@ -1,20 +1,9 @@
-
-#include "../../include/RecordModel.h"
-#if 0
-#include <algorithm> // std::sort
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-#endif
-
-#include "ruby.h"
-
-#include "MmapFile.h"
-
 #include <assert.h> // assert
 #include <stdio.h> // snprintf 
 #include <strings.h> // bzero
+#include "../../include/RecordModel.h"
+#include "MmapFile.h"
+#include "ruby.h"
 
 /*
  * A database consists of:
@@ -277,6 +266,9 @@ void _put_bulk(MMDB *db, RecordModelInstanceArray *arr, bool verify=false)
       field->copy_to_memory(rec_ptr, d->ptr_append(field->size())); 
     }
   }
+
+  db->num_records += n;
+  ++db->num_slices;
 }
 
 struct Params 
@@ -306,197 +298,273 @@ VALUE MMDB_put_bulk(VALUE self, VALUE arr)
   return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }
 
-
-#if 0
-
-static int64_t bin_search(int64_t l, int64_t r, const char *key, RecordDB *mdb, RecordModel *model, uint64_t *slice)
+struct Search
 {
-  int64_t m;
-  int c;
-  while (l < r)
+  MMDB *db;
+  RecordModel *model;
+
+  Search(MMDB *_db, RecordModel *_model)
   {
-    m = l + (r - l) / 2; 
+    this->db = _db;
+    this->model = _model;
+  }
 
-    assert(l < r);
-    assert(l >= 0);
-    assert(r > 0);
-    assert(m >= 0);
-    assert(m >= l);
-    //assert(r < len);
-    //assert(m < len);
-
-    c = model->compare_keys_buf(key, (const char*)mdb->record_n(slice[m]));
-    if (c > 0)
+  /*
+   * Compare the key we are looking for with the element at position 'index'.
+   */
+  inline int compare(const void *key_ptr, uint64_t index)
+  {
+    for (size_t i = 0; i < db->num_keys; ++i)
     {
-      // search in right half
-      l = m + 1;
+      RM_Type *field = model->_keys[i];
+      const void *b_ptr = db->db_keys[i]->ptr_read_element(index, field->size());
+
+      int cmp = field->compare_with_memory(key_ptr, b_ptr);
+      if (cmp != 0) return cmp;
     }
-    else if (c < 0)
+    return 0;
+  }
+
+  void copy_keys_in(RecordModelInstance *rec, uint64_t index)
+  {
+    for (size_t i = 0; i < db->num_keys; ++i)
     {
-      // search in left half
-      r = m - 1;
-    }
-    else
-    {
-      /* We are assuming that there can be multiple equal keys, so we have to scan left to find the first! */
-      assert (c==0);
-
-      for (;;)
-      {
-        if (m == l) break;
-	assert(m > l);
-
-        if (model->compare_keys_buf(key, (const char*)mdb->record_n(slice[m-1])) == 0)
-	{
-	  --m;
-        } 
-	else
-	{
-	  break;
-	}
-      }
-
-      l = m;
-      break;
+      RM_Type *field = model->_keys[i];
+      const void *c = db->db_keys[i]->ptr_read_element(index, field->size());
+      field->set_from_memory(rec->ptr(), c);
     }
   }
 
-  return l;
-}
+  void copy_values_in(RecordModelInstance *rec, uint64_t index)
+  {
+    const void *c = db->db_data->ptr_read_element(index, model->size_values());
+
+    for (size_t i = 0; i < model->_num_values; ++i)
+    {
+      RM_Type *field = model->_values[i];
+      field->set_from_memory(rec->ptr(), c);
+      c = (const void*) (((const char*)c) + field->size());
+    }
+  }
+
+#if 0
+  int keys_in_range_pos(uint64_t index, const void *from, const void *to)
+  {
+    for (int i = 0; i < (int)db->num_keys; ++i)
+    {
+      RM_Type *field = model->_keys[i];
+      const void *c = db->db_keys[i]->ptr_read_element(index, field->size());
+
+      int cmp = field->memory_between(c, from, to);
+      if (cmp < 0) return -i-1;
+      if (cmp > 0) return i+1;
+    }
+    return 0;
+  }
+#endif
+
+  int64_t bin_search(int64_t l, int64_t r, const void *key_ptr)
+  {
+    int64_t m;
+
+    while (l < r)
+    {
+      m = l + (r - l) / 2;
+
+      assert(l < r);
+      assert(l >= 0);
+      assert(r > 0);
+      assert(m >= 0);
+      assert(m >= l);
+
+      int c = compare(key_ptr, m);
+      if (c > 0)
+      {
+        /*
+         * key is > element[m]
+         *
+         * continue search in right half
+         */
+        l = m + 1;
+      }
+      else if (c < 0)
+      {
+        /*
+         * key is < element[m]
+         *
+         * continue search in left half
+         */
+        r = m - 1;
+      }
+      else
+      {
+        assert (c == 0);
+        /*
+	 * key is == element[m]
+         *
+	 * as mulitple equal keys are allowed to exist, and we want to find the
+	 * first one, we continue in the left half but include the current
+	 * element.
+         */ 
+         r = m;
+      }
+    }
+    return l;
+  }
+
+  bool query(uint64_t idx_from, uint64_t idx_to, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
+             RecordModelInstance *current,
+             bool (*iterator)(RecordModelInstance*, void*), void *data)
+  {
+    assert(idx_from <= idx_to);
+
+    /*
+     * What we are looking for is completely out of bound.
+     *
+     * [range_from, range_to] ... [idx_from, idx_to]
+     */
+    if (compare(range_to->ptr(), idx_from) < 0)
+      return true;
+
+    /*
+     * What we are looking for is completely out of bound.
+     *
+     * [idx_from, idx_to] ... [range_from, range_to]
+     */
+    if (compare(range_from->ptr(), idx_to) > 0)
+      return true;
+
+    /*
+     * Position our cursor using binary search
+     */ 
+    uint64_t cursor = bin_search(idx_from, idx_to, range_from->ptr());
+
+    /*
+     * Linear scan from current position
+     */
+    while (cursor <= idx_to)
+    {
+      copy_keys_in(current, cursor);
+     
+      int keypos;
+      int cmp = current->keys_in_range_pos(range_from, range_to, keypos);
+      if (cmp == 0)
+      {
+        /*
+         * all keys are within [range_from, range_to]
+         */
+        copy_values_in(current, cursor);
+
+        if (iterator && !iterator(current, data))
+        {
+          return false;
+        }
+
+        ++cursor;
+      }
+      else if (cmp < 0)
+      {
+        /*
+	 * The key at position "keypos" is less than the corresponding key of
+	 * "range_from".  Set the keys starting from "keypos" to the end to the
+	 * values from the keys from "range_from".
+         */
+
+        if (keypos == 0)
+        {
+          /*
+	   * This only can happen when the initial bin_search positions cursor
+	   * to before "range_from". So in this case, we continue to the next
+	   * record, instead of calling again bin_search (which might lead to
+	   * in infinite loop).
+           */
+           ++cursor;
+           continue;
+        }
+
+        current->copy_keys(range_from, keypos);
+
+        /*
+         * Search forward
+         */
+        cursor = bin_search(cursor+1, idx_to, current->ptr());
+      }
+      else if (cmp > 0)
+      {
+        /*
+	 * The key at "keypos" exceeds the corresponding key in "range_to".
+	 * Reset all keys starting from "keypos" to the values from
+	 * "range_from" and increase the previous key (basically a
+	 * carry-forward).
+         */
+
+        if (keypos == 0)
+        {
+          /*
+           * The first key exceeded "range_to" -> quit the search.
+           */
+          break;
+        }
+
+        current->copy_keys(range_from, keypos);
+        current->increase_key(keypos-1); // XXX: check overflows
+
+        /*
+         * Search forward
+         */
+        cursor = bin_search(cursor+1, idx_to, current->ptr());
+      }
+    }
+
+    return true; // continue with next slice
+  }
+
+  /*
+   * Queries all slices
+   */
+  bool query_all(const RecordModelInstance *range_from, const RecordModelInstance *range_to,
+             RecordModelInstance *current,
+             bool (*iterator)(RecordModelInstance*, void*), void *data)
+  {
+    size_t offs = 0;
+    for (size_t s = 0; s < db->num_slices; ++s)
+    {
+      uint32_t length = db->db_slices->ptr_read_element_at<uint32_t>(s);
+      if (length == 0)
+        continue;
+
+      if (!query(offs, offs+length-1, range_from, range_to, current, iterator, data))
+        return false;
+    }
+    return true;
+  }
+ 
+};
 
 struct yield_iter_data
 {
   VALUE _current;
 };
 
-static bool yield_iter(RecordModelInstance *current, void *data)
+static
+bool yield_iter(RecordModelInstance *current, void *data)
 {
   rb_yield(((yield_iter_data*)data)->_current);
   return true;
 }
 
-struct array_fill_iter_data
+static
+VALUE MMDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
 {
-  RecordModelInstanceArray *arr;
-};
-
-static bool array_fill_iter(RecordModelInstance *current, void *data)
-{
-  array_fill_iter_data *d = (array_fill_iter_data*)data;
-  RecordModel *m = current->model;
-
-  if (d->arr->full() && !d->arr->expand(m->size))
-  {
-    return false;
-    //rb_raise(rb_eArgError, "Failed to expand array");
-  }
-  assert(!d->arr->full());
-
-  memcpy(m->elemptr(d->arr, d->arr->_entries), current->ptr, m->size);
-
-  d->arr->_entries += 1;
- 
-  return true;
-}
-
-static VALUE query_internal(RecordDB *mdb, RecordModel *model, const RecordModelInstance *from, const RecordModelInstance *to, RecordModelInstance *current,
-  bool (*iterator)(RecordModelInstance*, void*), void *data)
-{
-  uint64_t *slice = mdb->slices_beg;
-  uint64_t *end_slice = mdb->slices_beg + mdb->header->slices_i;
-
-  while (slice < end_slice) 
-  {
-    uint64_t len = *slice;
-    ++slice;
-
-    if (len == 0)
-    {
-      continue;
-    }
-    // whole slice completely out of bounds -> skip slice
-    if ((model->compare_keys_buf((const char*)model->keyptr(to), (const char*)mdb->record_n(slice[0])) < 0) ||
-        (model->compare_keys_buf((const char*)model->keyptr(from), (const char*)mdb->record_n(slice[len-1])) > 0))
-    {
-      slice += len;
-      continue;
-    }
-
-    /* binary_search */
-    uint64_t i = bin_search(0, len - 1, (const char*)model->keyptr(from), mdb, model, slice);
-
-    // linear scan from current position (i)
-    while (i < len)
-    {
-      const char *rec = (const char*)mdb->record_n(slice[i]);
-
-      memcpy(model->keyptr(current), rec, model->keysize());
-      int kp = model->keys_in_range_pos(current, from, to);
-      if (kp == 0)
-      {
-        memcpy(model->dataptr(current), rec+model->keysize(), model->datasize());
-        if (iterator)
-        {
-          if (!iterator(current, data)) return Qfalse;
-        }
-        ++i;
-      }
-      else
-      {
-	assert(kp != 0);
-        int keypos = (kp > 0 ? kp : -kp) - 1;
-
-        if (kp < 0)
-	{
-	  // the key at position keypos is < left key
-	  // just move the key forward, but don't advance the previous key 
-	  if (keypos == 0)
-	  {
-	    // this happens when the initial bin search positions to before 'from'
-	    ++i;
-	    continue;
-          }
-	  model->copy_keys(current, from, keypos);
-	}
-	else if (kp > 0)
-	{
-	  // key at keypos moved beyond the to-bound. reset it and all 
-	  // following keys, and increase the previous key.
-          if (keypos == 0)
-          {
-            // if the first key moves beyond 'to' the search is over for this slice
-            assert(model->compare_keys_buf((const char*)model->keyptr(to), (const char*)model->keyptr(current)) < 0);
-            break;
-          }
-          model->copy_keys(current, from, keypos);
-          model->increase_key(current, keypos-1); // XXX: check key overflows!
-	}
-
-        /* binary_search forward */
-        i = bin_search(i+1, len - 1, (const char*)model->keyptr(current), mdb, model, slice);
-      }
-    } /* inner while */
-
-    // jump to next slice
-    slice += len;
-
-  } /* while */
-
-  return Qtrue;
-}
- 
-static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
-{
-  RecordDB *mdb;
-  Data_Get_Struct(self, RecordDB, mdb);
+  MMDB *db;
+  Data_Get_Struct(self, MMDB, db);
 
   RecordModelInstance *from;
-  Data_Get_Struct(_from, RecordModelInstance, from);
-
   RecordModelInstance *to;
-  Data_Get_Struct(_to, RecordModelInstance, to);
-
   RecordModelInstance *current;
+
+  Data_Get_Struct(_from, RecordModelInstance, from);
+  Data_Get_Struct(_to, RecordModelInstance, to);
   Data_Get_Struct(_current, RecordModelInstance, current);
 
   assert(from->model == to->model);
@@ -505,46 +573,62 @@ static VALUE RecordDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
   struct yield_iter_data d;
   d._current = _current;
 
-  return query_internal(mdb, from->model, from, to, current, yield_iter, &d);
+  Search s(db, from->model);
+  bool ok = s.query_all(from, to, current, yield_iter, &d); 
+
+  return (ok ? Qtrue : Qfalse);
 }
 
+struct array_fill_iter_data
+{
+  RecordModelInstanceArray *arr;
+};
+
+static
+bool array_fill_iter(RecordModelInstance *current, void *data)
+{
+  return ((array_fill_iter_data*)data)->arr->push((const RecordModelInstance*)current);
+}
+ 
 struct Params_query_into
 {
-  RecordDB *mdb;
+  MMDB *db;
   RecordModelInstance *from;
   RecordModelInstance *to;
   RecordModelInstance *current;
-  RecordModelInstanceArray *mia;
+  RecordModelInstanceArray *arr;
 };
 
-static VALUE query_into(void *a)
+static
+VALUE query_into(void *a)
 {
   Params_query_into *p = (Params_query_into*)a;
   struct array_fill_iter_data d;
-  d.arr = p->mia;
-  return query_internal(p->mdb, p->from->model, p->from, p->to, p->current, array_fill_iter, &d);
+  d.arr = p->arr;
+
+  Search s(p->db, p->from->model);
+  bool ok = s.query_all(p->from, p->to, p->current, array_fill_iter, &d); 
+
+  return (ok ? Qtrue : Qfalse);
 }
 
-static VALUE RecordDB_query_into(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE _mia)
+static
+VALUE MMDB_query_into(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE _arr)
 {
   Params_query_into p;
-  Data_Get_Struct(self, RecordDB, p.mdb);
+  Data_Get_Struct(self, MMDB, p.db);
 
   Data_Get_Struct(_from, RecordModelInstance, p.from);
-
   Data_Get_Struct(_to, RecordModelInstance, p.to);
-
   Data_Get_Struct(_current, RecordModelInstance, p.current);
+  Data_Get_Struct(_arr, RecordModelInstanceArray, p.arr);
 
-  Data_Get_Struct(_mia, RecordModelInstanceArray, p.mia);
-
-  assert(p.mia->model == p.from->model);
+  assert(p.arr->model == p.from->model);
   assert(p.from->model == p.to->model);
   assert(p.from->model == p.current->model);
 
   return rb_thread_blocking_region(query_into, &p, NULL, NULL);
 }
-#endif
 
 extern "C"
 void Init_RecordModelMMDBExt()
@@ -553,6 +637,6 @@ void Init_RecordModelMMDBExt()
   rb_define_singleton_method(cMMDB, "open", (VALUE (*)(...)) MMDB__open, 7);
   rb_define_method(cMMDB, "close", (VALUE (*)(...)) MMDB_close, 0);
   rb_define_method(cMMDB, "put_bulk", (VALUE (*)(...)) MMDB_put_bulk, 1);
-  //rb_define_method(cMMDB, "query", (VALUE (*)(...)) RecordDB_query, 3);
-  //rb_define_method(cMMDB, "query_into", (VALUE (*)(...)) RecordDB_query_into, 4);
+  rb_define_method(cMMDB, "query", (VALUE (*)(...)) MMDB_query, 3);
+  rb_define_method(cMMDB, "query_into", (VALUE (*)(...)) MMDB_query_into, 4);
 }
