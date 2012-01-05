@@ -296,6 +296,7 @@ struct RecordModelInstanceArray
 
     _capacity = capacity;
     _ptr = new_ptr;
+    sort_arr.reserve(_capacity);
     return true;
   } 
 
