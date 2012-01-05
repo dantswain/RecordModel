@@ -227,6 +227,8 @@ VALUE RecordModel_initialize(VALUE self, VALUE fields)
   assert(max_sz >= size_keys + size_values);
 
   model->_num_fields = num_fields;
+  model->_num_keys = num_keys;
+  model->_num_values = num_values;
   model->_size = max_sz;
   model->_size_keys = size_keys;
   model->_size_values = size_values;
@@ -667,6 +669,27 @@ VALUE RecordModelInstanceArray_each(VALUE _self, VALUE _rec)
   return Qnil;
 }
 
+static
+VALUE RecordModelInstanceArray_each_sorted(VALUE _self, VALUE _rec)
+{
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+  RecordModelInstance *rec = get_RecordModelInstance(_rec);
+
+  if (self->model != rec->model)
+  {
+    rb_raise(rb_eArgError, "Model mismatch");
+  }
+
+  for (size_t i = 0; i < self->entries(); ++i)
+  {
+    self->copy(rec, self->sorted_idx(i));
+    rb_yield(_rec);
+  }
+
+  return Qnil;
+}
+
+
 extern "C"
 void Init_RecordModelExt()
 {
@@ -700,4 +723,5 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstanceArray, "capacity", (VALUE (*)(...)) RecordModelInstanceArray_capacity, 0);
   rb_define_method(cRecordModelInstanceArray, "expandable?", (VALUE (*)(...)) RecordModelInstanceArray_expandable, 0);
   rb_define_method(cRecordModelInstanceArray, "each", (VALUE (*)(...)) RecordModelInstanceArray_each, 1);
+  rb_define_method(cRecordModelInstanceArray, "each_sorted", (VALUE (*)(...)) RecordModelInstanceArray_each_sorted, 1);
 }

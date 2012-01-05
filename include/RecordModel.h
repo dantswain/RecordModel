@@ -6,6 +6,8 @@
 #include <strings.h> // bzero, memset
 #include <string.h>  // memcpy
 #include <assert.h>  // assert
+#include <vector>    // std::vector
+#include <algorithm> // std::sort
 #include "RM_Types.h"
 
 struct RecordModel
@@ -14,6 +16,8 @@ struct RecordModel
   RM_Type **_keys;
   RM_Type **_values;
   size_t _num_fields;
+  size_t _num_keys;
+  size_t _num_values;
   size_t _size;
   size_t _size_keys;
   size_t _size_values;
@@ -24,12 +28,16 @@ struct RecordModel
   inline size_t size_keys() { return _size_keys; }
   inline size_t size_values() { return _size_values; }
 
+  inline size_t num_keys() { return _num_keys; }
+
   RecordModel()
   {
     _all_fields = NULL;
     _keys = NULL;
     _values = NULL;
     _num_fields = 0;
+    _num_keys = 0;
+    _num_values = 0;
     _size = 0;
     _size_keys = 0;
     _size_values = 0;
@@ -44,8 +52,8 @@ struct RecordModel
 
   bool is_virgin()
   {
-    return (_all_fields == NULL && _keys == NULL && _values == NULL && _num_fields == 0 && _size == 0 &&
-            _size_keys == 0 && _size_values == 0 /*&& _rm_obj == Qnil*/);
+    return (_all_fields == NULL && _keys == NULL && _values == NULL && _num_fields == 0 && _num_keys == 0 && _num_values == 0 &&
+            _size == 0 && _size_keys == 0 && _size_values == 0 /*&& _rm_obj == Qnil*/);
   }
 
   ~RecordModel()
@@ -85,6 +93,12 @@ struct RecordModelInstance
   inline const void *ptr() const { return (const void*)_ptr; }
 
   inline int size() { return model->size(); }
+
+  RecordModelInstance()
+  {
+    this->model = NULL;
+    this->_ptr = NULL;
+  }
 
   RecordModelInstance(RecordModel *model, void *ptr)
   {
@@ -209,6 +223,20 @@ struct RecordModelInstance
   }
 };
 
+struct RecordModelInstanceArraySorter
+{
+  RecordModelInstance rec_a;
+  RecordModelInstance rec_b;
+  void *base_ptr;
+  size_t element_size;
+ 
+  bool operator()(uint32_t ai, uint32_t bi)
+  {
+    rec_a._ptr = ((char*)base_ptr) + element_size*ai;
+    rec_b._ptr = ((char*)base_ptr) + element_size*bi;
+    return (rec_a.compare_keys(&rec_b) < 0);
+  }
+};
 
 /*
  * Represents a dynamic array of RecordModel instances
@@ -220,6 +248,10 @@ struct RecordModelInstanceArray
   size_t _capacity;
   size_t _entries;
   bool expandable;
+
+  // Allows max. 2**32-1 elements to be stored within an array.
+  typedef uint32_t SORT_IDX;
+  std::vector<SORT_IDX> sort_arr; 
 
   size_t entries() const { return _entries; }
   size_t capacity() const { return _capacity; }
@@ -255,9 +287,9 @@ struct RecordModelInstanceArray
 
     if (capacity < 8) capacity = 8;
     if (ptr == NULL)
-      new_ptr = malloc(model->size() * capacity);
+      new_ptr = malloc(element_size() * capacity);
     else
-      new_ptr = realloc(ptr, model->size() * capacity);
+      new_ptr = realloc(ptr, element_size() * capacity);
 
     if (new_ptr == NULL)
       return false;
@@ -287,12 +319,7 @@ struct RecordModelInstanceArray
   void reset()
   {
     _entries = 0;
-  }
-
-  inline void *element_n(size_t n)
-  {
-    assert(n < _capacity);
-    return ((char*)_ptr + (n * model->size()));
+    sort_arr.clear();
   }
 
   bool push(const RecordModelInstance *rec)
@@ -305,11 +332,17 @@ struct RecordModelInstanceArray
     }
     assert(!full());
 
-    RecordModelInstance dst(this->model, element_n(_entries++));
+    sort_arr.push_back(_entries);
+    RecordModelInstance dst(this->model, element_n(_entries));
     dst.copy(rec);
+
+    ++_entries;
     return true;
   }
 
+  /*
+   * Copies element at index 'i' into 'rec'
+   */
   void copy(RecordModelInstance *rec, size_t i)
   {
     assert(i < _entries);
@@ -317,6 +350,54 @@ struct RecordModelInstanceArray
 
     RecordModelInstance src(this->model, element_n(i));
     rec->copy(&src);
+  }
+
+  /*
+   * Sorts the array. Does not move the entries around, but instead 
+   * uses a separate sort array (sort_arr). Use idx_to_sort(i) to
+   * retrieve the sorted index.
+   */
+  void sort()
+  {
+    RecordModelInstanceArraySorter s;
+    s.rec_a.model = model;
+    s.rec_b.model = model;
+    s.base_ptr = _ptr;
+    s.element_size = element_size(); 
+    std::sort(sort_arr.begin(), sort_arr.end(), s);
+  }
+
+  /*
+   * Returns the sorted index of element i
+   */
+  SORT_IDX sorted_idx(size_t i)
+  {
+    assert(i < _entries);
+    SORT_IDX k = sort_arr[i];
+    assert(k < _entries);
+    return k;
+  }
+
+  void *ptr_at(size_t i)
+  {
+    assert(i < _entries);
+    return element_n(i);
+  }
+
+  void *ptr_at_sorted(size_t i)
+  {
+    return ptr_at(sorted_idx(i)); 
+  }
+
+  inline size_t element_size()
+  {
+    return model->size();
+  }
+
+  inline void *element_n(size_t n)
+  {
+    assert(n < _capacity);
+    return ((char*)_ptr + (n * element_size()));
   }
 
 };
