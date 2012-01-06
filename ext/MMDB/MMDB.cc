@@ -163,176 +163,20 @@ struct MMDB
     _num_slices = num_slices;
     _num_records = num_records;
   }
-};
 
-static
-void MMDB__mark(void *ptr)
-{
-  MMDB *mdb = (MMDB*)ptr;
-  if (mdb && mdb->model)
-  {
-    rb_gc_mark(mdb->model->_rm_obj);
-  }
-}
-
-static
-void MMDB__free(void *ptr)
-{
-  MMDB *mdb = (MMDB*)ptr;
-  if (mdb)
-  {
-    delete(mdb);
-  }
-}
-
-static
-MMDB* MMDB__get(VALUE self) {
-  MMDB *ptr;
-  Data_Get_Struct(self, MMDB, ptr);
-  return ptr;
-}
-
-static
-VALUE MMDB__open(VALUE klass, VALUE recordmodel, VALUE path_prefix, VALUE num_slices, VALUE hint_slices, VALUE num_records, VALUE hint_records, VALUE readonly)
-{
-  Check_Type(path_prefix, T_STRING);
-
-  RecordModel *model;
-  Data_Get_Struct(recordmodel, RecordModel, model);
-
-  MMDB *mdb = new MMDB;
-
-  bool ok = mdb->open(model, RSTRING_PTR(path_prefix), NUM2ULONG(num_slices), NUM2ULONG(hint_slices), NUM2ULONG(num_records), NUM2ULONG(hint_records), RTEST(readonly));
-  if (!ok)
-  {
-    delete mdb;
-    return Qnil;
-  }
-
-  VALUE obj = Data_Wrap_Struct(klass, MMDB__mark, MMDB__free, mdb);
-  return obj;
-}
-
-static
-VALUE MMDB_close(VALUE self)
-{
-  MMDB__get(self)->close();
-  return Qnil;
-}
-
-/*
- * XXX: Do not mix size_t and uint32_t
- */
-static
-void _put_bulk(MMDB *db, RecordModelInstanceArray *arr, bool verify=false)
-{
-  assert(db);
-  assert(arr);
-  assert(db->model == arr->model);
-  assert(!db->readonly);
-
-  RecordModel *model = db->model;
-
-  size_t n = arr->entries();
-
-  if (n == 0)
-  {
-    return;
-  }
-
-  arr->sort();
-
-  if (verify)
-  {
-    RecordModelInstance ia(model, NULL);
-    RecordModelInstance ib(model, NULL);
-
-    for (size_t i = 1; i < n; ++i)
-    {
-      ia._ptr = arr->ptr_at_sorted(i-1);
-      ib._ptr = arr->ptr_at_sorted(i);
-      assert(ia.compare_keys(&ib) <= 0);
-    }
-  }
-
-  // store the slice length
-  *((uint32_t*)db->db_slices->ptr_append(sizeof(uint32_t))) = n;
-
-  for (size_t i = 0; i < n; ++i)
-  {
-    void *rec_ptr = arr->ptr_at_sorted(i);
-
-    // copy data
-    MmapFile *d = db->db_data;
-    for (size_t k = 0; k < model->_num_values; ++k)
-    {
-      RM_Type *field = model->_values[k];
-      assert(field);
-      field->copy_to_memory(rec_ptr, d->ptr_append(field->size())); 
-    }
-
-    // copy keys
-    for (size_t k = 0; k < model->_num_keys; ++k)
-    {
-      MmapFile *d = db->db_keys[k];
-      assert(d);
-      RM_Type *field = model->_keys[k];
-      assert(field);
-      field->copy_to_memory(rec_ptr, d->ptr_append(field->size())); 
-    }
-  }
-
-  db->num_records += n;
-  ++db->num_slices;
-}
-
-struct Params 
-{
-  MMDB *db;
-  RecordModelInstanceArray *arr;
-  bool verify;
-};
-
-static
-VALUE put_bulk(void *ptr)
-{
-  Params *params = (Params*)ptr;
-  _put_bulk(params->db, params->arr, params->verify);
-  return Qnil;
-}
-
-static
-VALUE MMDB_put_bulk(VALUE self, VALUE arr)
-{
-  Params p;
-
-  Data_Get_Struct(self, MMDB, p.db);
-  Data_Get_Struct(arr, RecordModelInstanceArray, p.arr);
-  p.verify = false;
-
-  return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
-}
-
-struct Search
-{
-  MMDB *db;
-  RecordModel *model;
-
-  Search(MMDB *_db, RecordModel *_model)
-  {
-    this->db = _db;
-    this->model = _model;
-  }
+  // -----------------------------------------------
+  // Query support
+  // -----------------------------------------------
 
   /*
    * Compare the key we are looking for with the element at position 'index'.
    */
   inline int compare(const void *key_ptr, uint64_t index)
   {
-    for (size_t i = 0; i < db->num_keys; ++i)
+    for (size_t i = 0; i < this->num_keys; ++i)
     {
       RM_Type *field = model->_keys[i];
-      const void *b_ptr = db->db_keys[i]->ptr_read_element(index, field->size());
+      const void *b_ptr = this->db_keys[i]->ptr_read_element(index, field->size());
 
       int cmp = field->compare_with_memory(key_ptr, b_ptr);
       if (cmp != 0) return cmp;
@@ -342,17 +186,17 @@ struct Search
 
   void copy_keys_in(RecordModelInstance *rec, uint64_t index)
   {
-    for (size_t i = 0; i < db->num_keys; ++i)
+    for (size_t i = 0; i < this->num_keys; ++i)
     {
       RM_Type *field = model->_keys[i];
-      const void *c = db->db_keys[i]->ptr_read_element(index, field->size());
+      const void *c = this->db_keys[i]->ptr_read_element(index, field->size());
       field->set_from_memory(rec->ptr(), c);
     }
   }
 
   void copy_values_in(RecordModelInstance *rec, uint64_t index)
   {
-    const void *c = db->db_data->ptr_read_element(index, model->size_values());
+    const void *c = this->db_data->ptr_read_element(index, model->size_values());
 
     for (size_t i = 0; i < model->_num_values; ++i)
     {
@@ -526,9 +370,9 @@ struct Search
              bool (*iterator)(RecordModelInstance*, void*), void *data)
   {
     size_t offs = 0;
-    for (size_t s = 0; s < db->num_slices; ++s)
+    for (size_t s = 0; s < this->num_slices; ++s)
     {
-      uint32_t length = db->db_slices->ptr_read_element_at<uint32_t>(s);
+      uint32_t length = this->db_slices->ptr_read_element_at<uint32_t>(s);
       if (length == 0)
         continue;
 
@@ -539,6 +383,154 @@ struct Search
   }
  
 };
+
+static
+void MMDB__mark(void *ptr)
+{
+  MMDB *mdb = (MMDB*)ptr;
+  if (mdb && mdb->model)
+  {
+    rb_gc_mark(mdb->model->_rm_obj);
+  }
+}
+
+static
+void MMDB__free(void *ptr)
+{
+  MMDB *mdb = (MMDB*)ptr;
+  if (mdb)
+  {
+    delete(mdb);
+  }
+}
+
+static
+MMDB* MMDB__get(VALUE self) {
+  MMDB *ptr;
+  Data_Get_Struct(self, MMDB, ptr);
+  return ptr;
+}
+
+static
+VALUE MMDB__open(VALUE klass, VALUE recordmodel, VALUE path_prefix, VALUE num_slices, VALUE hint_slices, VALUE num_records, VALUE hint_records, VALUE readonly)
+{
+  Check_Type(path_prefix, T_STRING);
+
+  RecordModel *model;
+  Data_Get_Struct(recordmodel, RecordModel, model);
+
+  MMDB *mdb = new MMDB;
+
+  bool ok = mdb->open(model, RSTRING_PTR(path_prefix), NUM2ULONG(num_slices), NUM2ULONG(hint_slices), NUM2ULONG(num_records), NUM2ULONG(hint_records), RTEST(readonly));
+  if (!ok)
+  {
+    delete mdb;
+    return Qnil;
+  }
+
+  VALUE obj = Data_Wrap_Struct(klass, MMDB__mark, MMDB__free, mdb);
+  return obj;
+}
+
+static
+VALUE MMDB_close(VALUE self)
+{
+  MMDB__get(self)->close();
+  return Qnil;
+}
+
+/*
+ * XXX: Do not mix size_t and uint32_t
+ */
+static
+void _put_bulk(MMDB *db, RecordModelInstanceArray *arr, bool verify=false)
+{
+  assert(db);
+  assert(arr);
+  assert(db->model == arr->model);
+  assert(!db->readonly);
+
+  RecordModel *model = db->model;
+
+  size_t n = arr->entries();
+
+  if (n == 0)
+  {
+    return;
+  }
+
+  arr->sort();
+
+  if (verify)
+  {
+    RecordModelInstance ia(model, NULL);
+    RecordModelInstance ib(model, NULL);
+
+    for (size_t i = 1; i < n; ++i)
+    {
+      ia._ptr = arr->ptr_at_sorted(i-1);
+      ib._ptr = arr->ptr_at_sorted(i);
+      assert(ia.compare_keys(&ib) <= 0);
+    }
+  }
+
+  // store the slice length
+  *((uint32_t*)db->db_slices->ptr_append(sizeof(uint32_t))) = n;
+
+  for (size_t i = 0; i < n; ++i)
+  {
+    void *rec_ptr = arr->ptr_at_sorted(i);
+
+    // copy data
+    MmapFile *d = db->db_data;
+    for (size_t k = 0; k < model->_num_values; ++k)
+    {
+      RM_Type *field = model->_values[k];
+      assert(field);
+      field->copy_to_memory(rec_ptr, d->ptr_append(field->size())); 
+    }
+
+    // copy keys
+    for (size_t k = 0; k < model->_num_keys; ++k)
+    {
+      MmapFile *d = db->db_keys[k];
+      assert(d);
+      RM_Type *field = model->_keys[k];
+      assert(field);
+      field->copy_to_memory(rec_ptr, d->ptr_append(field->size())); 
+    }
+  }
+
+  db->num_records += n;
+  ++db->num_slices;
+}
+
+struct Params 
+{
+  MMDB *db;
+  RecordModelInstanceArray *arr;
+  bool verify;
+};
+
+static
+VALUE put_bulk(void *ptr)
+{
+  Params *params = (Params*)ptr;
+  _put_bulk(params->db, params->arr, params->verify);
+  return Qnil;
+}
+
+static
+VALUE MMDB_put_bulk(VALUE self, VALUE arr)
+{
+  Params p;
+
+  Data_Get_Struct(self, MMDB, p.db);
+  Data_Get_Struct(arr, RecordModelInstanceArray, p.arr);
+  p.verify = false;
+
+  return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
+}
 
 struct yield_iter_data
 {
@@ -568,12 +560,12 @@ VALUE MMDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
 
   assert(from->model == to->model);
   assert(from->model == current->model);
+  assert(from->model == db->model);
 
   struct yield_iter_data d;
   d._current = _current;
 
-  Search s(db, from->model);
-  bool ok = s.query_all(from, to, current, yield_iter, &d); 
+  bool ok = db->query_all(from, to, current, yield_iter, &d); 
 
   return (ok ? Qtrue : Qfalse);
 }
@@ -605,8 +597,7 @@ VALUE query_into(void *a)
   struct array_fill_iter_data d;
   d.arr = p->arr;
 
-  Search s(p->db, p->from->model);
-  bool ok = s.query_all(p->from, p->to, p->current, array_fill_iter, &d); 
+  bool ok = p->db->query_all(p->from, p->to, p->current, array_fill_iter, &d); 
 
   return (ok ? Qtrue : Qfalse);
 }
@@ -625,6 +616,7 @@ VALUE MMDB_query_into(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE 
   assert(p.arr->model == p.from->model);
   assert(p.from->model == p.to->model);
   assert(p.from->model == p.current->model);
+  assert(p.from->model == p.db->model);
 
   return rb_thread_blocking_region(query_into, &p, NULL, NULL);
 }
