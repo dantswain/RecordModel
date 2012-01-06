@@ -148,6 +148,21 @@ struct MMDB
     num_slices = 0;
     num_records = 0;
   }
+
+  bool commit(size_t &_num_slices, size_t &_num_records)
+  {
+    assert(!readonly);
+
+    if (!db_slices->sync()) return false;
+    if (!db_data->sync()) return false;
+    for (size_t i = 0; i < num_keys; ++i)
+    {
+      if (!db_keys[i]->sync()) return false;
+    }
+
+    _num_slices = num_slices;
+    _num_records = num_records;
+  }
 };
 
 static

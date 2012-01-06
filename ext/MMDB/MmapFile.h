@@ -216,11 +216,27 @@ public:
   }
  
   /*
-   * Very expensive operation!
+   * Potential very expensive operation!
+   *
+   * Flushes all changes back to disk.
    */
   bool sync()
   {
-    // will call msync, fsync and ftruncate.
+    int err;
+    err = msync(_ptr, _size, MS_SYNC);
+    if (err != 0)
+    {
+      LOG_ERR("sync: msync failed");
+      return false;
+    }
+
+    err = fsync(_fh);
+    if (err != 0)
+    {
+      LOG_ERR("sync: msync failed");
+      return false;
+    }
+
     return true;
   }
 
