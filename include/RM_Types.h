@@ -216,13 +216,41 @@ struct RM_TIMESTAMP : RM_UInt<uint64_t>
   }
 };
 
+/*
+ * Timestamps in descending order
+ */
+struct RM_TIMESTAMP_DESC : RM_TIMESTAMP
+{
+  typedef uint64_t NT;
+  inline NT *element_ptr(void *data) { return (NT*) (((char*)data)+offset()); }
+  inline NT &element(void *data) { return *element_ptr(data); }
+  inline NT element(const void *data) { return *element_ptr((void*)data); }
+
+  virtual void inc(void *a)
+  {
+    --element(a);
+  }
+
+  virtual int compare(const void *a, const void *b)
+  {
+    return -RM_TIMESTAMP::compare(a, b);
+  }
+
+  virtual int compare_with_memory(const void *a, const void *mem)
+  {
+    return -RM_TIMESTAMP::compare_with_memory(a, mem);
+  }
+};
+
 struct RM_DOUBLE : RM_Type 
 {
-  inline double *element_ptr(void *data) { return (double*) (((char*)data)+offset()); }
-  inline double &element(void *data) { return *element_ptr(data); }
-  inline double element(const void *data) { return *element_ptr((void*)data); }
+  typedef double NT;
 
-  virtual uint8_t size() { return sizeof(double); }
+  inline NT *element_ptr(void *data) { return (NT*) (((char*)data)+offset()); }
+  inline NT &element(void *data) { return *element_ptr(data); }
+  inline NT element(const void *data) { return *element_ptr((void*)data); }
+
+  virtual uint8_t size() { return sizeof(NT); }
 
   virtual VALUE to_ruby(const void *a)
   {
@@ -231,7 +259,7 @@ struct RM_DOUBLE : RM_Type
 
   virtual void set_from_ruby(void *a, VALUE val)
   {
-    element(a) = (double)NUM2DBL(val);
+    element(a) = (NT)NUM2DBL(val);
   }
 
   // XXX: remove char* cast and string modification!
@@ -251,22 +279,22 @@ struct RM_DOUBLE : RM_Type
 
   virtual void set_from_memory(void *a, const void *ptr)
   {
-    element(a) = *((const double*)ptr);
+    element(a) = *((const NT*)ptr);
   }
 
   virtual void copy_to_memory(const void *a, void *ptr)
   {
-    *((double*)ptr) = element(a); 
+    *((NT*)ptr) = element(a); 
   }
 
   virtual void set_min(void *a)
   {
-    element(a) = std::numeric_limits<double>::min();
+    element(a) = std::numeric_limits<NT>::min();
   }
 
   virtual void set_max(void *a)
   {
-    element(a) = std::numeric_limits<double>::max();
+    element(a) = std::numeric_limits<NT>::max();
   }
 
   virtual void add(void *a, const void *b)
@@ -308,7 +336,7 @@ struct RM_DOUBLE : RM_Type
 
   virtual int compare_with_memory(const void *a, const void *mem)
   {
-    double b = *((const double*)mem);
+    NT b = *((const NT*)mem);
     if (element(a) < b) return -1;
     if (element(a) > b) return 1;
     return 0;

@@ -15,11 +15,29 @@ class TestRecordModel < Test::Unit::TestCase
       r.val :e, :double
       r.val :f, :hexstr, 16
       r.key :g, :timestamp
+      r.key :h, :timestamp_desc
     end
   end
 
   def test_model_size
-    assert_equal(47, @klass.model.size)
+    assert_equal(55, @klass.model.size)
+  end
+
+  def test_timestamp_desc
+    k0 = RecordModel.define do |r|
+      r.key :ts, :timestamp
+    end
+    k1 = RecordModel.define do |r|
+      r.key :ts, :timestamp_desc
+    end
+
+    a = k0.new(:ts => 10)
+    b = k0.new(:ts => 5)
+    assert_equal(1, a <=> b)
+
+    a = k1.new(:ts => 10)
+    b = k1.new(:ts => 5)
+    assert_equal(-1, a <=> b)
   end
 
   def test_init
@@ -31,6 +49,7 @@ class TestRecordModel < Test::Unit::TestCase
     assert_equal(0.0, rec.e)
     assert_equal("00" * 16, rec.f)
     assert_equal(0, rec.g)
+    assert_equal(0, rec.h)
   end
 
   def test_min_max
@@ -43,6 +62,7 @@ class TestRecordModel < Test::Unit::TestCase
     #min_max(rec, 4, -(1.0/0), (1.0/0)) # XXX: min/max for float
     min_max(rec, 5, '00' * 16, 'FF' * 16)
     min_max(rec, 6, 0, 2**64 - 1)
+    min_max(rec, 7, 0, 2**64 - 1)
   end
 
   def min_max(rec, fld, min, max)
@@ -83,13 +103,15 @@ class TestRecordModel < Test::Unit::TestCase
     from_string(rec, 5, 'FF' * 16, "FF" * 16)
     from_string(rec, 5, '00' * 15 + 'AD', "AD")
 
-    from_string(rec, 6, 0, "0")
-    from_string(rec, 6, 0, "0.0")
-    from_string(rec, 6, 0, "0.000")
-    from_string(rec, 6, 100, "0.1")
-    from_string(rec, 6, 123, "0.123")
-    from_string(rec, 6, 123, "0.1234")
-    from_string(rec, 6, 1999123, "1999.1234")
+    for i in 6 .. 7
+      from_string(rec, 6, 0, "0")
+      from_string(rec, 6, 0, "0.0")
+      from_string(rec, 6, 0, "0.000")
+      from_string(rec, 6, 100, "0.1")
+      from_string(rec, 6, 123, "0.123")
+      from_string(rec, 6, 123, "0.1234")
+      from_string(rec, 6, 1999123, "1999.1234")
+    end
   end
 
   def from_string(rec, fld, exp, str)

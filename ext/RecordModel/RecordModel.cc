@@ -190,6 +190,10 @@ VALUE RecordModel_initialize(VALUE self, VALUE fields)
     {
       t = new RM_TIMESTAMP();
     }
+    else if (ID2SYM(rb_intern("timestamp_desc")) == e_type)
+    {
+      t = new RM_TIMESTAMP_DESC();
+    }
     else if (ID2SYM(rb_intern("double")) == e_type)
     {
       t = new RM_DOUBLE();
