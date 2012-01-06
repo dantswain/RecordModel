@@ -130,6 +130,18 @@ public:
     }
   }
 
+  inline void read_lock()
+  {
+  }
+
+  inline void write_lock()
+  {
+  }
+
+  inline void unlock()
+  {
+  }
+
   // Extends the file and the mmaped region 
   // if false is returned, it can be that you cannot
   // access the data anymore (mremap failed)!
@@ -150,18 +162,37 @@ public:
       return false;
     }
 
-    munmap(_ptr, _capa);
-    _ptr = NULL;
-
-    void *ptr = mmap(NULL, new_capa, PROT_READ | PROT_WRITE, MAP_SHARED, _fh, 0);
+    /*
+     * Try first to remap without holding the write_lock
+     */
+    void *ptr = mremap(_ptr, _capa, new_capa, 0);
     if (ptr == MAP_FAILED)
     {
-      LOG_ERR("expand: mmap failed");
-      return false;
+      /*
+       * Remapping failed. Try to munmap and mmap again, which
+       * gives us a new pointer. That's why we must hold the write_lock.
+       */
+      write_lock();
+
+      munmap(_ptr, _capa);
+      _ptr = NULL;
+      ptr = mmap(NULL, new_capa, PROT_READ | PROT_WRITE, MAP_SHARED, _fh, 0);
+      if (ptr == MAP_FAILED)
+      {
+        LOG_ERR("expand: mmap failed");
+        unlock();
+        return false;
+      }
+      _ptr = ptr;
+
+      unlock();
+    }
+    else
+    {
+      assert(_ptr == ptr);
     }
 
     _capa = new_capa;
-    _ptr = ptr;
     return true;
   }
 
