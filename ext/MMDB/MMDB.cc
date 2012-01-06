@@ -4,6 +4,7 @@
 #include "../../include/RecordModel.h"
 #include "MmapFile.h"
 #include "ruby.h"
+#include <pthread.h>
 
 /*
  * A database consists of:
@@ -27,12 +28,24 @@
  * 4, or "k1_16" for the second (index 1) key and a size of 16. The sizes are
  * just there to help a bit against unwanted schema changes. The data file is
  * named e.g. "data_40", i.e. again is the record size in the name. 
+ *
+ *
+ * Thread safetly:
+ *
+ * It is safe to have one writer thread and many reader threads concurrently
+ * accessing the same database object. The writer thread is allowed to call
+ * "commit" or "put_bulk", while the reader threads are only allowed to call
+ * "query_all". R/W locks are used to protect the thread using those methods
+ * against each other.
  * 
  */
-
 struct MMDB
 {
+
   RecordModel *model;
+
+private:
+
   MmapFile *db_slices;
   MmapFile *db_data;
   MmapFile **db_keys;
@@ -40,6 +53,10 @@ struct MMDB
   bool readonly;
   size_t num_slices;
   size_t num_records;
+
+  pthread_rwlock_t rwlock;
+
+public:
 
   MMDB()
   {
@@ -51,10 +68,12 @@ struct MMDB
     readonly = true;
     num_slices = 0;
     num_records = 0;
+    pthread_rwlock_init(&rwlock, NULL);
   }
 
   ~MMDB()
   {
+    pthread_rwlock_destroy(&rwlock);
     close();
   }
 
@@ -152,16 +171,30 @@ struct MMDB
   bool commit(size_t &_num_slices, size_t &_num_records)
   {
     assert(!readonly);
+    bool res = false;
 
-    if (!db_slices->sync()) return false;
-    if (!db_data->sync()) return false;
+    int err = pthread_rwlock_rdlock(&rwlock);
+    if (err)
+      return res;
+    
+    if (!db_slices->sync())
+      goto end;
+
+    if (!db_data->sync())
+      goto end;
+
     for (size_t i = 0; i < num_keys; ++i)
     {
-      if (!db_keys[i]->sync()) return false;
+      if (!db_keys[i]->sync())
+        goto end;
     }
 
     _num_slices = num_slices;
     _num_records = num_records;
+    res = true;
+end:
+    pthread_rwlock_unlock(&rwlock);
+    return res;
   }
 
   /*
@@ -195,6 +228,13 @@ struct MMDB
       }
     }
 
+    /*
+     * Protect from any concurrent activity, because we might munmap or mremap
+     * the memory location of a MmapFile database in case we have to expand it.
+     */
+    int err = pthread_rwlock_wrlock(&rwlock);
+    assert(!err);
+
     // store the slice length
     db_slices->append_value<uint32_t>(n);
 
@@ -218,18 +258,16 @@ struct MMDB
     }
 
     num_records += n;
-
-    /*
-     * XXX: Increase atomic
-     *
-     * If we do this atomically, we can have any number of concurrent readers together with a single writer. 
-     */
     ++num_slices;
+
+    pthread_rwlock_unlock(&rwlock);
   }
 
   // -----------------------------------------------
   // Query support
   // -----------------------------------------------
+
+private:
 
   /*
    * Compare the key we are looking for with the element at position 'index'.
@@ -425,6 +463,8 @@ struct MMDB
     return true; // continue with next slice
   }
 
+public:
+
   /*
    * Queries all slices
    */
@@ -432,17 +472,28 @@ struct MMDB
              RecordModelInstance *current,
              bool (*iterator)(RecordModelInstance*, void*), void *data)
   {
+    bool res = true;
     size_t offs = 0;
-    for (size_t s = 0; s < this->num_slices; ++s)
+    size_t slices;
+
+    int err = pthread_rwlock_rdlock(&rwlock);
+    assert(!err);
+
+    slices = this->num_slices;
+
+    for (size_t s = 0; s < slices; ++s)
     {
-      uint32_t length = this->db_slices->ptr_read_element_at<uint32_t>(s);
+      uint32_t length = db_slices->ptr_read_element_at<uint32_t>(s);
       if (length == 0)
         continue;
 
-      if (!query(offs, offs+length-1, range_from, range_to, current, iterator, data))
-        return false;
+      res = query(offs, offs+length-1, range_from, range_to, current, iterator, data);
+      if (!res)
+        break;
     }
-    return true;
+
+    pthread_rwlock_unlock(&rwlock);
+    return res;
   }
  
 };

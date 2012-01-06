@@ -143,15 +143,15 @@ public:
       return false;
     }
 
-    munmap(_ptr, _capa);
-    _ptr = NULL;
-
     int err = ftruncate(_fh, new_capa); 
     if (err != 0)
     {
       LOG_ERR("expand: ftruncate failed");
       return false;
     }
+
+    munmap(_ptr, _capa);
+    _ptr = NULL;
 
     void *ptr = mmap(NULL, new_capa, PROT_READ | PROT_WRITE, MAP_SHARED, _fh, 0);
     if (ptr == MAP_FAILED)
