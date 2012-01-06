@@ -164,6 +164,69 @@ struct MMDB
     _num_records = num_records;
   }
 
+  /*
+   * XXX: Do not mix size_t and uint32_t
+   */
+  void put_bulk(RecordModelInstanceArray *arr, bool verify=false)
+  {
+    assert(!readonly);
+    assert(arr);
+    assert(model == arr->model);
+
+    size_t n = arr->entries();
+
+    if (n == 0)
+    {
+      return;
+    }
+
+    arr->sort();
+
+    if (verify)
+    {
+      RecordModelInstance ia(model, NULL);
+      RecordModelInstance ib(model, NULL);
+
+      for (size_t i = 1; i < n; ++i)
+      {
+	ia._ptr = arr->ptr_at_sorted(i-1);
+	ib._ptr = arr->ptr_at_sorted(i);
+	assert(ia.compare_keys(&ib) <= 0);
+      }
+    }
+
+    // store the slice length
+    db_slices->append_value<uint32_t>(n);
+
+    for (size_t i = 0; i < n; ++i)
+    {
+      void *rec_ptr = arr->ptr_at_sorted(i);
+
+      // copy data
+      for (size_t k = 0; k < model->_num_values; ++k)
+      {
+	RM_Type *field = model->_values[k];
+	field->copy_to_memory(rec_ptr, db_data->ptr_append(field->size())); 
+      }
+
+      // copy keys
+      for (size_t k = 0; k < model->_num_keys; ++k)
+      {
+	RM_Type *field = model->_keys[k];
+	field->copy_to_memory(rec_ptr, db_keys[k]->ptr_append(field->size())); 
+      }
+    }
+
+    num_records += n;
+
+    /*
+     * XXX: Increase atomic
+     *
+     * If we do this atomically, we can have any number of concurrent readers together with a single writer. 
+     */
+    ++num_slices;
+  }
+
   // -----------------------------------------------
   // Query support
   // -----------------------------------------------
@@ -439,71 +502,6 @@ VALUE MMDB_close(VALUE self)
   return Qnil;
 }
 
-/*
- * XXX: Do not mix size_t and uint32_t
- */
-static
-void _put_bulk(MMDB *db, RecordModelInstanceArray *arr, bool verify=false)
-{
-  assert(db);
-  assert(arr);
-  assert(db->model == arr->model);
-  assert(!db->readonly);
-
-  RecordModel *model = db->model;
-
-  size_t n = arr->entries();
-
-  if (n == 0)
-  {
-    return;
-  }
-
-  arr->sort();
-
-  if (verify)
-  {
-    RecordModelInstance ia(model, NULL);
-    RecordModelInstance ib(model, NULL);
-
-    for (size_t i = 1; i < n; ++i)
-    {
-      ia._ptr = arr->ptr_at_sorted(i-1);
-      ib._ptr = arr->ptr_at_sorted(i);
-      assert(ia.compare_keys(&ib) <= 0);
-    }
-  }
-
-  // store the slice length
-  *((uint32_t*)db->db_slices->ptr_append(sizeof(uint32_t))) = n;
-
-  for (size_t i = 0; i < n; ++i)
-  {
-    void *rec_ptr = arr->ptr_at_sorted(i);
-
-    // copy data
-    MmapFile *d = db->db_data;
-    for (size_t k = 0; k < model->_num_values; ++k)
-    {
-      RM_Type *field = model->_values[k];
-      assert(field);
-      field->copy_to_memory(rec_ptr, d->ptr_append(field->size())); 
-    }
-
-    // copy keys
-    for (size_t k = 0; k < model->_num_keys; ++k)
-    {
-      MmapFile *d = db->db_keys[k];
-      assert(d);
-      RM_Type *field = model->_keys[k];
-      assert(field);
-      field->copy_to_memory(rec_ptr, d->ptr_append(field->size())); 
-    }
-  }
-
-  db->num_records += n;
-  ++db->num_slices;
-}
 
 struct Params 
 {
@@ -516,7 +514,7 @@ static
 VALUE put_bulk(void *ptr)
 {
   Params *params = (Params*)ptr;
-  _put_bulk(params->db, params->arr, params->verify);
+  params->db->put_bulk(params->arr, params->verify);
   return Qnil;
 }
 

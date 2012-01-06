@@ -190,9 +190,15 @@ public:
     return (void*)(((char*)_ptr) + offset);
   }
 
-  void *ptr_append(size_t length)
+  inline void *ptr_append(size_t length)
   {
     return ptr_write_at(_size, length);
+  }
+
+  template <typename T>
+  void append_value(const T& value)
+  {
+    *((T*)ptr_append(sizeof(T))) = value;
   }
 
   inline const void *ptr_read_at(size_t offset, size_t length)
