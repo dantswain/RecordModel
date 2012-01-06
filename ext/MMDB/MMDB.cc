@@ -78,7 +78,7 @@ struct MMDB
     if (!name) goto fail;
 
     // open slices file
-    snprintf(name, name_sz, "%sslices_%d", path_prefix, sizeof(uint32_t));
+    snprintf(name, name_sz, "%sslices_%ld", path_prefix, sizeof(uint32_t));
     db_slices = new MmapFile();
     ok = db_slices->open(name, sizeof(uint32_t)*num_slices, sizeof(uint32_t)*_hint_slices, readonly);
     if (!ok) goto fail;
