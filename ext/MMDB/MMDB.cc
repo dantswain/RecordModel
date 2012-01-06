@@ -267,6 +267,10 @@ end:
   // Query support
   // -----------------------------------------------
 
+  static const int ITER_CONTINUE = 0; 
+  static const int ITER_NEXT_SLICE = 1;
+  static const int ITER_STOP = 2;
+
 private:
 
   /*
@@ -356,9 +360,9 @@ private:
     return l;
   }
 
-  bool query(uint64_t idx_from, uint64_t idx_to, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
-             RecordModelInstance *current,
-             bool (*iterator)(RecordModelInstance*, void*), void *data)
+  int query(uint64_t idx_from, uint64_t idx_to, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
+            RecordModelInstance *current,
+            int (*iterator)(RecordModelInstance*, void*), void *data)
   {
     assert(idx_from <= idx_to);
 
@@ -368,7 +372,7 @@ private:
      * [range_from, range_to] ... [idx_from, idx_to]
      */
     if (compare(range_to->ptr(), idx_from) < 0)
-      return true;
+      return ITER_CONTINUE;
 
     /*
      * What we are looking for is completely out of bound.
@@ -376,7 +380,7 @@ private:
      * [idx_from, idx_to] ... [range_from, range_to]
      */
     if (compare(range_from->ptr(), idx_to) > 0)
-      return true;
+      return ITER_CONTINUE;
 
     /*
      * Position our cursor using binary search
@@ -399,9 +403,10 @@ private:
          */
         copy_values_in(current, cursor);
 
-        if (iterator && !iterator(current, data))
+        int iter = iterator(current, data);
+        if (iter != ITER_CONTINUE)
         {
-          return false;
+          return iter;
         }
 
         ++cursor;
@@ -460,7 +465,7 @@ private:
       }
     }
 
-    return true; // continue with next slice
+    return ITER_CONTINUE; // continue with next slice
   }
 
 public:
@@ -468,11 +473,11 @@ public:
   /*
    * Queries all slices
    */
-  bool query_all(const RecordModelInstance *range_from, const RecordModelInstance *range_to,
-             RecordModelInstance *current,
-             bool (*iterator)(RecordModelInstance*, void*), void *data)
+  int query_all(const RecordModelInstance *range_from, const RecordModelInstance *range_to,
+                 RecordModelInstance *current,
+                 int (*iterator)(RecordModelInstance*, void*), void *data)
   {
-    bool res = true;
+    int iter = ITER_CONTINUE;
     size_t offs = 0;
     size_t slices;
 
@@ -487,15 +492,64 @@ public:
       if (length == 0)
         continue;
 
-      res = query(offs, offs+length-1, range_from, range_to, current, iterator, data);
-      if (!res)
+      iter = query(offs, offs+length-1, range_from, range_to, current, iterator, data);
+      if (iter == ITER_STOP)
         break;
     }
 
     pthread_rwlock_unlock(&rwlock);
-    return res;
+
+    return iter;
   }
- 
+  
+  struct min_iter_data
+  {
+    RecordModelInstance *min;
+  };
+
+  static int min_iter(RecordModelInstance *current, void *_data)
+  {
+    min_iter_data *data = (min_iter_data*)_data;
+
+    if (data->min)
+    {
+      if (current->compare_keys(data->min) < 0)
+      {
+        data->min->copy(current);
+      }
+    }
+    else
+    {
+      data->min = current->dup(); 
+    }
+
+    return ITER_NEXT_SLICE;
+  }
+  
+  /*
+   * Returns the smallest element in current. If no element was found, returns false. 
+   */
+  bool query_min(const RecordModelInstance *range_from, const RecordModelInstance *range_to,
+             RecordModelInstance *current)
+  {
+    min_iter_data data;
+    data.min = NULL;
+
+    query_all(range_from, range_to, current, min_iter, &data);
+
+    if (data.min)
+    {
+      current->copy(data.min);
+      delete data.min;
+      return true;
+    }
+    else
+    {
+      // no record found at all
+      return false;
+    }
+  }
+  
 };
 
 static
@@ -553,7 +607,6 @@ VALUE MMDB_close(VALUE self)
   return Qnil;
 }
 
-
 struct Params 
 {
   MMDB *db;
@@ -587,10 +640,10 @@ struct yield_iter_data
 };
 
 static
-bool yield_iter(RecordModelInstance *current, void *data)
+int yield_iter(RecordModelInstance *current, void *data)
 {
   rb_yield(((yield_iter_data*)data)->_current);
-  return true;
+  return MMDB::ITER_CONTINUE;
 }
 
 static
@@ -614,9 +667,9 @@ VALUE MMDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
   struct yield_iter_data d;
   d._current = _current;
 
-  bool ok = db->query_all(from, to, current, yield_iter, &d); 
+  db->query_all(from, to, current, yield_iter, &d); 
 
-  return (ok ? Qtrue : Qfalse);
+  return Qnil;
 }
 
 struct array_fill_iter_data
@@ -625,9 +678,10 @@ struct array_fill_iter_data
 };
 
 static
-bool array_fill_iter(RecordModelInstance *current, void *data)
+int array_fill_iter(RecordModelInstance *current, void *data)
 {
-  return ((array_fill_iter_data*)data)->arr->push((const RecordModelInstance*)current);
+  bool ok = ((array_fill_iter_data*)data)->arr->push((const RecordModelInstance*)current);
+  return (ok ? MMDB::ITER_CONTINUE : MMDB::ITER_STOP);
 }
  
 struct Params_query_into
@@ -646,9 +700,12 @@ VALUE query_into(void *a)
   struct array_fill_iter_data d;
   d.arr = p->arr;
 
-  bool ok = p->db->query_all(p->from, p->to, p->current, array_fill_iter, &d); 
+  int iter = p->db->query_all(p->from, p->to, p->current, array_fill_iter, &d); 
 
-  return (ok ? Qtrue : Qfalse);
+  if (iter == MMDB::ITER_STOP)
+    return Qfalse;
+  else
+    return Qtrue;
 }
 
 static
@@ -670,6 +727,43 @@ VALUE MMDB_query_into(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE 
   return rb_thread_blocking_region(query_into, &p, NULL, NULL);
 }
 
+static
+VALUE query_min(void *a)
+{
+  Params_query_into *p = (Params_query_into*)a;
+
+  bool found = p->db->query_min(p->from, p->to, p->current); 
+
+  return (found ? Qtrue : Qfalse);
+}
+
+/*
+ * Returns nil if nothing was found, or the _current value, filled in
+ * with the smallest (minimum) record (according to the keys) found.
+ * If records with equal keys exist, the first found is used.
+ */
+static
+VALUE MMDB_query_min(VALUE self, VALUE _from, VALUE _to, VALUE _current)
+{
+  Params_query_into p;
+  Data_Get_Struct(self, MMDB, p.db);
+
+  Data_Get_Struct(_from, RecordModelInstance, p.from);
+  Data_Get_Struct(_to, RecordModelInstance, p.to);
+  Data_Get_Struct(_current, RecordModelInstance, p.current);
+
+  assert(p.from->model == p.to->model);
+  assert(p.from->model == p.current->model);
+  assert(p.from->model == p.db->model);
+
+  VALUE res = rb_thread_blocking_region(query_min, &p, NULL, NULL);
+  if (RTEST(res))
+  {
+    return _current;
+  }
+  return Qnil;
+}
+
 extern "C"
 void Init_RecordModelMMDBExt()
 {
@@ -679,4 +773,5 @@ void Init_RecordModelMMDBExt()
   rb_define_method(cMMDB, "put_bulk", (VALUE (*)(...)) MMDB_put_bulk, 1);
   rb_define_method(cMMDB, "query", (VALUE (*)(...)) MMDB_query, 3);
   rb_define_method(cMMDB, "query_into", (VALUE (*)(...)) MMDB_query_into, 4);
+  rb_define_method(cMMDB, "query_min", (VALUE (*)(...)) MMDB_query_min, 3);
 }

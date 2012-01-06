@@ -179,6 +179,12 @@ class RecordModelInstance
     end
   end
 
+  def self.db_query_min(db, query={})
+    from, to = build_query(query)
+    item = new()
+    return db.query_min(from, to, item)
+  end
+
   #
   # Example usage: def_parser_descr(:uid, :campaign_id, nil, [:timestamp, :fixint, 3])
   #
