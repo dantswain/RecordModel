@@ -223,6 +223,8 @@ class RecordModelInstanceArray
     old_initialize(model_klass, n, expandable)
   end
 
+  include Enumerable
+
   alias old_each each
   def each(instance=nil, &block)
     old_each(instance || @model_klass.new, &block)
