@@ -243,11 +243,15 @@ end
 class RecordModel::LineParser
   require 'thread'
 
-  def initialize(db, item_class, array_item_class, line_parse_descr)  
+  def initialize(db, item_class, array_item_class, line_parse_descr, array_sz=2**22)
     @db = db
     @item_class = item_class
     @array_item_class = array_item_class
     @line_parse_descr = line_parse_descr
+
+    @inq, @outq = Queue.new, Queue.new
+    # two arrays so that the log line parser and DB insert can work in parallel
+    2.times { @outq << @array_item_class.make_array(array_sz, false) }
   end
 
   def convert_item(error, item)
@@ -255,18 +259,37 @@ class RecordModel::LineParser
     return item
   end
 
-  def import(io, array_sz=2**22, report_failures=false, report_progress_every=1_000_000, &block)
+  def start
+    raise unless @outq.size == 2
+    raise unless @inq.size == 0
+    raise if @thread
+    @thread = start_db_thread(@inq, @outq) 
+  end
+
+  def stop
+    # Remove all packets from @outq and send it back into @inq to be processed
+    # in case there are some records left.
+    (1..2).map { @outq.pop }.each {|packet| @inq << packet }
+    @inq << :end
+    @thread.join
+    @thread = nil
+  end
+
+  def import(io, report_failures=false, report_progress_every=1_000_000, &block)
+    start
+    import_multiple(io, report_failures, report_progress_every, &block)
+    stop
+  end
+
+  #
+  # Method import_multiple has to be used together with start() and stop(). 
+  #
+  def import_multiple(io, report_failures=false, report_progress_every=1_000_000, &block)
     line_parse_descr = @line_parse_descr
-
-    inq, outq = Queue.new, Queue.new
-    thread = start_db_thread(inq, outq) 
-
-    # two arrays so that the log line parser and DB insert can work in parallel
-    2.times { outq << @array_item_class.make_array(array_sz, false) }
 
     item = @item_class.new
 
-    arr = outq.pop
+    arr = @outq.pop
     lines_read = 0
     lines_ok = 0
 
@@ -280,8 +303,8 @@ class RecordModel::LineParser
           lines_ok += 1
         end
         if arr.full?
-          inq << arr 
-	  arr = outq.pop
+          @inq << arr 
+	  arr = @outq.pop
         end
       rescue 
         if report_failures and block
@@ -293,10 +316,7 @@ class RecordModel::LineParser
       end
     end # while
 
-    inq << arr
-    inq << :end
-
-    thread.join
+    @outq << arr
 
     return lines_read, lines_ok
   end
