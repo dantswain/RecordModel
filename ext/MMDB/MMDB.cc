@@ -764,6 +764,31 @@ VALUE MMDB_query_min(VALUE self, VALUE _from, VALUE _to, VALUE _current)
   return Qnil;
 }
 
+/*
+ * TODO: in background
+ */
+static
+VALUE MMDB_commit(VALUE self)
+{
+  MMDB *db;  
+  Data_Get_Struct(self, MMDB, db);
+
+  size_t num_slices = 0;
+  size_t num_records = 0;
+
+  bool ok = db->commit(num_slices, num_records);
+  VALUE res = Qnil;
+
+  if (ok)
+  {
+    res = rb_ary_new();  
+    rb_ary_push(res, ULONG2NUM(num_slices));
+    rb_ary_push(res, ULONG2NUM(num_records));
+  }
+
+  return res;
+}
+ 
 extern "C"
 void Init_RecordModelMMDBExt()
 {
@@ -774,4 +799,5 @@ void Init_RecordModelMMDBExt()
   rb_define_method(cMMDB, "query", (VALUE (*)(...)) MMDB_query, 3);
   rb_define_method(cMMDB, "query_into", (VALUE (*)(...)) MMDB_query_into, 4);
   rb_define_method(cMMDB, "query_min", (VALUE (*)(...)) MMDB_query_min, 3);
+  rb_define_method(cMMDB, "commit", (VALUE (*)(...)) MMDB_commit, 0);
 }
