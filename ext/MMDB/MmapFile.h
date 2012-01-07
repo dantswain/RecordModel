@@ -8,6 +8,7 @@
 #include <unistd.h>     // close, fstat, ftruncate
 #include <sys/mman.h>   // mmap, munmap
 #include <algorithm>    // std::max
+#include <pthread.h>    // pthread_rwlock_t
 
 #define LOG_ERR(reason) fprintf(stderr, reason "\n")
 #ifndef LOG_ERR
@@ -21,16 +22,18 @@ class MmapFile
   size_t _capa;
   bool _readonly;
   void *_ptr;
+  pthread_rwlock_t *_rwlock;
 
 public:
 
-  MmapFile()
+  MmapFile(pthread_rwlock_t *rwlock)
   {
     _fh = -1;
     _size = 0;
     _capa = 0;
     _readonly = true;
     _ptr = NULL;
+    _rwlock = rwlock;
   }
 
   size_t size() { return _size; }
@@ -130,18 +133,6 @@ public:
     }
   }
 
-  inline void read_lock()
-  {
-  }
-
-  inline void write_lock()
-  {
-  }
-
-  inline void unlock()
-  {
-  }
-
   // Extends the file and the mmaped region 
   // if false is returned, it can be that you cannot
   // access the data anymore (mremap failed)!
@@ -172,7 +163,8 @@ public:
        * Remapping failed. Try to munmap and mmap again, which
        * gives us a new pointer. That's why we must hold the write_lock.
        */
-      write_lock();
+      int err = pthread_rwlock_wrlock(_rwlock);
+      assert(!err);
 
       munmap(_ptr, _capa);
       _ptr = NULL;
@@ -180,12 +172,14 @@ public:
       if (ptr == MAP_FAILED)
       {
         LOG_ERR("expand: mmap failed");
-        unlock();
+        err = pthread_rwlock_unlock(_rwlock); 
+        assert(!err);
         return false;
       }
       _ptr = ptr;
 
-      unlock();
+      err = pthread_rwlock_unlock(_rwlock); 
+      assert(!err);
     }
     else
     {

@@ -29,14 +29,14 @@
  * just there to help a bit against unwanted schema changes. The data file is
  * named e.g. "data_40", i.e. again is the record size in the name. 
  *
+ * Commit:
+ *
+ * The effect of put_bulk is only seen after calling method #commit.
  *
  * Thread safetly:
  *
- * It is safe to have one writer thread and many reader threads concurrently
- * accessing the same database object. The writer thread is allowed to call
- * "commit" or "put_bulk", while the reader threads are only allowed to call
- * "query_all". R/W locks are used to protect the thread using those methods
- * against each other.
+ * It is safe to use the methods "put_bulk", "commit" and "query_all"
+ * concurrently.
  * 
  */
 struct MMDB
@@ -52,9 +52,11 @@ private:
   size_t num_keys;
   bool readonly;
   size_t num_slices;
+  size_t num_slices_for_read;
   size_t num_records;
 
   pthread_rwlock_t rwlock;
+  pthread_mutex_t mutex;
 
 public:
 
@@ -67,14 +69,17 @@ public:
     num_keys = 0;
     readonly = true;
     num_slices = 0;
+    num_slices_for_read = 0;
     num_records = 0;
     pthread_rwlock_init(&rwlock, NULL);
+    pthread_mutex_init(&mutex, NULL);
   }
 
   ~MMDB()
   {
-    pthread_rwlock_destroy(&rwlock);
     close();
+    pthread_mutex_destroy(&mutex);
+    pthread_rwlock_destroy(&rwlock);
   }
 
   /*
@@ -85,6 +90,7 @@ public:
     using namespace std;
 
     num_slices = _num_slices;
+    num_slices_for_read = _num_slices;
     num_records = _num_records;
     readonly = _readonly;
     model = _model;
@@ -98,13 +104,13 @@ public:
 
     // open slices file
     snprintf(name, name_sz, "%sslices_%ld", path_prefix, sizeof(uint32_t));
-    db_slices = new MmapFile();
+    db_slices = new MmapFile(&rwlock);
     ok = db_slices->open(name, sizeof(uint32_t)*num_slices, sizeof(uint32_t)*_hint_slices, readonly);
     if (!ok) goto fail;
 
     // open data file
     snprintf(name, name_sz, "%sdata_%ld", path_prefix, model->size_values());
-    db_data = new MmapFile();
+    db_data = new MmapFile(&rwlock);
     ok = db_data->open(name, model->size_values()*num_records, model->size_values()*_hint_records, readonly);
     if (!ok) goto fail;
 
@@ -118,7 +124,7 @@ public:
       RM_Type *field = model->_keys[i]; 
       assert(field);
       snprintf(name, name_sz, "%sk%ld_%d", path_prefix, i, field->size());
-      db_keys[i] = new MmapFile();
+      db_keys[i] = new MmapFile(&rwlock);
       ok = db_keys[i]->open(name, field->size()*num_records, field->size()*_hint_records, readonly);
       if (!ok) goto fail;
     }
@@ -165,17 +171,23 @@ public:
     num_keys = 0;
     readonly = true;
     num_slices = 0;
+    num_slices_for_read = 0;
     num_records = 0;
   }
 
+  /*
+   * Only method that updates num_slices_for_read.
+   */
   bool commit(size_t &_num_slices, size_t &_num_records)
   {
     assert(!readonly);
     bool res = false;
 
-    int err = pthread_rwlock_rdlock(&rwlock);
-    if (err)
-      return res;
+    int err = pthread_mutex_lock(&mutex);
+    assert(!err);
+
+    err = pthread_rwlock_rdlock(&rwlock);
+    assert(!err);
     
     if (!db_slices->sync())
       goto end;
@@ -189,11 +201,20 @@ public:
         goto end;
     }
 
+    /*
+     * Make the commited state visible for query functions.
+     */
+    num_slices_for_read = num_slices;
+
     _num_slices = num_slices;
     _num_records = num_records;
     res = true;
 end:
-    pthread_rwlock_unlock(&rwlock);
+    err = pthread_rwlock_unlock(&rwlock);
+    assert(!err);
+    err = pthread_mutex_unlock(&mutex);
+    assert(!err);
+
     return res;
   }
 
@@ -229,11 +250,17 @@ end:
     }
 
     /*
-     * Protect from any concurrent activity, because we might munmap or mremap
-     * the memory location of a MmapFile database in case we have to expand it.
+     * There cannot be more than one thread calling put_bulk
+     * at the same time. Use a mutex to guarantee that.
      */
-    int err = pthread_rwlock_wrlock(&rwlock);
+    int err = pthread_mutex_lock(&mutex);
     assert(!err);
+
+    /*
+     * Because we might munmap or mremap the memory location of a MmapFile 
+     * database in case we have to expand it, the code within MmapFile
+     * might acquire an exclusive rwlock lock. 
+     */
 
     // store the slice length
     db_slices->append_value<uint32_t>(n);
@@ -260,7 +287,8 @@ end:
     num_records += n;
     ++num_slices;
 
-    pthread_rwlock_unlock(&rwlock);
+    err = pthread_mutex_unlock(&mutex);
+    assert(!err);
   }
 
   // -----------------------------------------------
@@ -468,6 +496,19 @@ private:
     return ITER_CONTINUE; // continue with next slice
   }
 
+
+  size_t get_num_slices_for_read()
+  {
+    size_t s;
+
+    int err = pthread_mutex_lock(&mutex);
+    assert(!err);
+    s = this->num_slices_for_read;
+    err = pthread_mutex_unlock(&mutex);
+    assert(!err);
+    return s;
+  }
+
 public:
 
   /*
@@ -481,10 +522,14 @@ public:
     size_t offs = 0;
     size_t slices;
 
+    slices = get_num_slices_for_read();
+
+    /*
+     * We set a read lock here so a _ptr of a MmapFile cannot be ripped out under us.
+     * in case the mmap has to be expanded.
+     */
     int err = pthread_rwlock_rdlock(&rwlock);
     assert(!err);
-
-    slices = this->num_slices;
 
     for (size_t s = 0; s < slices; ++s)
     {
@@ -497,7 +542,8 @@ public:
         break;
     }
 
-    pthread_rwlock_unlock(&rwlock);
+    err = pthread_rwlock_unlock(&rwlock);
+    assert(!err);
 
     return iter;
   }
