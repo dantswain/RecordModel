@@ -243,20 +243,32 @@ end
 class RecordModel::LineParser
   require 'thread'
 
-  def initialize(db, item_class, array_item_class, line_parse_descr, array_sz=2**22)
+  def self.import(io, db, item_class, array_item_class, line_parse_descr, array_sz=2**22,
+    report_failures=false, report_progress_every=1_000_000, &block)
+
+    parser = new(db, item_class, array_item_class, line_parse_descr, array_sz,
+                 report_failures, report_progress_every)
+    parser.start
+    res = parser.import(io, &block)
+    parser.start
+    return res
+  end
+
+  def initialize(db, item_class, array_item_class, line_parse_descr, array_sz=2**22,
+    report_failures=false, report_progress_every=1_000_000)
     @db = db
     @item_class = item_class
+    @item = @item_class.new
     @array_item_class = array_item_class
     @line_parse_descr = line_parse_descr
+    @report_failures = report_failures
+    @report_progress_every = report_progress_every
+
+    @lines_read, @lines_ok = 0, 0
 
     @inq, @outq = Queue.new, Queue.new
     # two arrays so that the log line parser and DB insert can work in parallel
     2.times { @outq << @array_item_class.make_array(array_sz, false) }
-  end
-
-  def convert_item(error, item)
-    raise if error and error != -1
-    return item
   end
 
   def start
@@ -275,23 +287,19 @@ class RecordModel::LineParser
     @thread = nil
   end
 
-  def import(io, report_failures=false, report_progress_every=1_000_000, &block)
-    start
-    import_multiple(io, report_failures, report_progress_every, &block)
-    stop
-  end
-
   #
-  # Method import_multiple has to be used together with start() and stop(). 
+  # Method import has to be used together with start() and stop().
   #
-  def import_multiple(io, report_failures=false, report_progress_every=1_000_000, &block)
+  def import(io, &block)
     line_parse_descr = @line_parse_descr
+    report_failures = @report_failures
+    report_progress_every = @report_progress_every
 
-    item = @item_class.new
+    item = @item
 
     arr = @outq.pop
-    lines_read = 0
-    lines_ok = 0
+    lines_read = @lines_read
+    lines_ok = @lines_ok
 
     while line = io.gets
       lines_read += 1
@@ -319,10 +327,20 @@ class RecordModel::LineParser
 
     @outq << arr
 
-    return lines_read, lines_ok
+    diff_lines_read = lines_read - @lines_read 
+    diff_lines_ok = lines_ok - @lines_ok
+    @lines_read = lines_read
+    @lines_ok = lines_ok
+
+    return diff_lines_read, diff_lines_ok 
   end
 
   protected
+
+  def convert_item(error, item)
+    raise if error and error != -1
+    return item
+  end
 
   def store_packet(packet)
     begin
