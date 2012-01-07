@@ -308,11 +308,11 @@ class RecordModel::LineParser
           lines_ok += 1
         end
       rescue 
-        if report_failures and block
+        if block and report_failures
 	  block.call(:failure, [$!, line])
         end
       end # begin .. rescue
-      if report_progress_every and (lines_read % report_progress_every) == 0 and block
+      if block and report_progress_every and (lines_read % report_progress_every) == 0
         block.call(:progress, [lines_read, lines_ok])
       end
     end # while
