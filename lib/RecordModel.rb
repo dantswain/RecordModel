@@ -296,15 +296,16 @@ class RecordModel::LineParser
     while line = io.gets
       lines_read += 1
       begin
+        if arr.full?
+          @inq << arr 
+	  arr = @outq.pop
+        end
+
         item.zero!
         error = item.parse_line(line, line_parse_descr)
         if new_item = convert_item(error, item)
           arr << new_item
           lines_ok += 1
-        end
-        if arr.full?
-          @inq << arr 
-	  arr = @outq.pop
         end
       rescue 
         if report_failures and block
