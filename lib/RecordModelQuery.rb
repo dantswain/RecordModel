@@ -26,15 +26,22 @@ class RecordModelQuery
   def into(itemarr=nil)
     item = @klass.new()
     itemarr ||= @klass.make_array(1024)
-    if @db.query_into(from, to, item, itemarr)
-      return itemarr
-    else
-      raise "query_into failed"
-    end
+    @ranges.each {|from, to|
+      raise "query_into failed" unless @db.query_into(from, to, item, itemarr)
+    }
+    return itemarr 
   end
 
   def min
+    min = nil
     item = @klass.new()
-    return @db.query_min(from, to, item)
+    @ranges.each {|from, to|
+      if c = @db.query_min(from, to, item)
+        if min.nil? or c < min
+          min = c.dup
+        end
+      end
+    }
+    return min
   end
 end
