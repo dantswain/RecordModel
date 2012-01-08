@@ -29,10 +29,6 @@
  * just there to help a bit against unwanted schema changes. The data file is
  * named e.g. "data_40", i.e. again is the record size in the name. 
  *
- * Commit:
- *
- * The effect of put_bulk is only seen after calling method #commit.
- *
  * Thread safetly:
  *
  * It is safe to use the methods "put_bulk", "commit" and "query_all"
@@ -52,7 +48,6 @@ private:
   size_t num_keys;
   bool readonly;
   size_t num_slices;
-  size_t num_slices_for_read;
   size_t num_records;
 
   pthread_rwlock_t rwlock;
@@ -69,7 +64,6 @@ public:
     num_keys = 0;
     readonly = true;
     num_slices = 0;
-    num_slices_for_read = 0;
     num_records = 0;
     pthread_rwlock_init(&rwlock, NULL);
     pthread_mutex_init(&mutex, NULL);
@@ -90,7 +84,6 @@ public:
     using namespace std;
 
     num_slices = _num_slices;
-    num_slices_for_read = _num_slices;
     num_records = _num_records;
     readonly = _readonly;
     model = _model;
@@ -171,13 +164,9 @@ public:
     num_keys = 0;
     readonly = true;
     num_slices = 0;
-    num_slices_for_read = 0;
     num_records = 0;
   }
 
-  /*
-   * Only method that updates num_slices_for_read.
-   */
   bool commit(size_t &_num_slices, size_t &_num_records)
   {
     assert(!readonly);
@@ -200,11 +189,6 @@ public:
       if (!db_keys[i]->sync())
         goto end;
     }
-
-    /*
-     * Make the commited state visible for query functions.
-     */
-    num_slices_for_read = num_slices;
 
     _num_slices = num_slices;
     _num_records = num_records;
@@ -501,16 +485,8 @@ public:
 
   size_t get_num_slices_for_read()
   {
-    size_t s;
-
-    int err = pthread_mutex_lock(&mutex);
-    assert(!err);
-    s = this->num_slices_for_read;
-    err = pthread_mutex_unlock(&mutex);
-    assert(!err);
-    return s;
+    return this->num_slices;
   }
-
 
   /*
    * Queries all slices
