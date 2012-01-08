@@ -260,7 +260,7 @@ struct RecordModelInstanceArray
 
   // Allows max. 2**32-1 elements to be stored within an array.
   typedef uint32_t SORT_IDX;
-  std::vector<SORT_IDX> sort_arr; 
+  std::vector<SORT_IDX> *sort_arr; 
 
   size_t entries() const { return _entries; }
   size_t capacity() const { return _capacity; }
@@ -288,6 +288,11 @@ struct RecordModelInstanceArray
       free(_ptr);
       _ptr = NULL;
     }
+    if (sort_arr)
+    {
+      delete sort_arr;
+      sort_arr = NULL;
+    }
   }
 
   bool _alloc(void *ptr, size_t capacity)
@@ -305,7 +310,6 @@ struct RecordModelInstanceArray
 
     _capacity = capacity;
     _ptr = new_ptr;
-    sort_arr.reserve(_capacity);
     return true;
   } 
 
@@ -329,7 +333,8 @@ struct RecordModelInstanceArray
   void reset()
   {
     _entries = 0;
-    sort_arr.clear();
+    if (sort_arr)
+      sort_arr->clear();
   }
 
   bool push(const RecordModelInstance *rec)
@@ -342,7 +347,8 @@ struct RecordModelInstanceArray
     }
     assert(!full());
 
-    sort_arr.push_back(_entries);
+    if (sort_arr)
+      sort_arr->push_back(_entries);
     RecordModelInstance dst(this->model, element_n(_entries));
     dst.copy(rec);
 
@@ -373,7 +379,16 @@ struct RecordModelInstanceArray
     s.model = model;
     s.base_ptr = _ptr;
     s.element_size = element_size(); 
-    std::sort(sort_arr.begin(), sort_arr.end(), s);
+    if (!sort_arr)
+    {
+      sort_arr = new std::vector<SORT_IDX>; 
+      sort_arr->reserve(_entries);
+      for (size_t i = 0; i < _entries; ++i)
+      {
+        sort_arr->push_back(i);
+      }
+    }
+    std::sort(sort_arr->begin(), sort_arr->end(), s);
   }
 
   /*
@@ -382,7 +397,7 @@ struct RecordModelInstanceArray
   SORT_IDX sorted_idx(size_t i)
   {
     assert(i < _entries);
-    SORT_IDX k = sort_arr[i];
+    SORT_IDX k = sort_arr ? (*sort_arr)[i] : i;
     assert(k < _entries);
     return k;
   }
@@ -408,7 +423,6 @@ struct RecordModelInstanceArray
     assert(n < _capacity);
     return ((char*)_ptr + (n * element_size()));
   }
-
 };
 
 #endif
