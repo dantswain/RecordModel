@@ -2,11 +2,9 @@ require 'RecordModelMMDBExt'
 require 'RecordModelQuery'
 
 class RecordModelMMDB
-  alias _snapshot snapshot
-
   # Redefine snapshot method
   def snapshot
-    RecordModelMMDB::Snapshot.new(self, _snapshot)
+    RecordModelMMDB::Snapshot.new(self, get_snapshot_num())
   end
 
   def query(klass, *queries)
@@ -23,7 +21,7 @@ class RecordModelMMDB::Snapshot
     self
   end
 
-  def _snapshot
+  def get_snapshot_num
     @snapshot
   end
 

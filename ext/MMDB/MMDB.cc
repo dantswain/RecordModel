@@ -842,7 +842,7 @@ VALUE MMDB_commit(VALUE self)
 }
 
 static
-VALUE MMDB_snapshot(VALUE self)
+VALUE MMDB_get_snapshot_num(VALUE self)
 {
   MMDB *db;  
   Data_Get_Struct(self, MMDB, db);
@@ -860,5 +860,5 @@ void Init_RecordModelMMDBExt()
   rb_define_method(cMMDB, "query_into", (VALUE (*)(...)) MMDB_query_into, 5);
   rb_define_method(cMMDB, "query_min", (VALUE (*)(...)) MMDB_query_min, 4);
   rb_define_method(cMMDB, "commit", (VALUE (*)(...)) MMDB_commit, 0);
-  rb_define_method(cMMDB, "snapshot", (VALUE (*)(...)) MMDB_snapshot, 0);
+  rb_define_method(cMMDB, "get_snapshot_num", (VALUE (*)(...)) MMDB_get_snapshot_num, 0);
 }
