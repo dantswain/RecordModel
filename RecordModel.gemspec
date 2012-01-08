@@ -6,7 +6,8 @@ spec = Gem::Specification.new do |s|
   s.license = 'BSD License'
   s.files = ['README', 'RecordModel.gemspec',
              'include/RecordModel.h', 'include/RM_Types.h',
-             'lib/RecordModel.rb', 'ext/RecordModel/RecordModel.cc',
+             'lib/RecordModel.rb', 'lib/RecordModelQuery.rb',
+             'ext/RecordModel/RecordModel.cc',
              'ext/RecordModel/extconf.rb']
   s.extensions = ['ext/RecordModel/extconf.rb']
   s.require_paths = ['lib']
