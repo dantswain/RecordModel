@@ -221,14 +221,19 @@ struct RM_TIMESTAMP : RM_UInt<uint64_t>
  */
 struct RM_TIMESTAMP_DESC : RM_TIMESTAMP
 {
-  typedef uint64_t NT;
-  inline NT *element_ptr(void *data) { return (NT*) (((char*)data)+offset()); }
-  inline NT &element(void *data) { return *element_ptr(data); }
-  inline NT element(const void *data) { return *element_ptr((void*)data); }
-
   virtual void inc(void *a)
   {
     --element(a);
+  }
+
+  virtual void set_min(void *a)
+  {
+    RM_TIMESTAMP::set_max(a);
+  }
+
+  virtual void set_max(void *a)
+  {
+    RM_TIMESTAMP::set_min(a);
   }
 
   virtual int compare(const void *a, const void *b)
