@@ -78,7 +78,6 @@ class RecordModel
 
     return klass
   end
-
 end
 
 class RecordModelInstance
@@ -124,7 +123,7 @@ class RecordModelInstance
     RecordModelInstanceArray.new(self, n, expandable)
   end
 
-  def self.build_query(query={})
+  def self.build_query(query)
     from = new()
     to = new()
 
@@ -153,37 +152,6 @@ class RecordModelInstance
     raise ArgumentError unless (query.keys - used_keys).empty?
 
     return from, to
-  end
-
-  def self.db_query(db, query={}, &block)
-    from, to = build_query(query)
-    item = new()
-    db.query(from, to, item, &block)
-  end
-
-  def self.db_query_to_a(db, query={})
-    arr = []
-    db_query(db, query) do |item|
-      arr << item.dup
-    end
-    arr
-  end
-
-  def self.db_query_into(db, itemarr=nil, query={})
-    from, to = build_query(query)
-    item = new()
-    itemarr ||= make_array(1024)
-    if db.query_into(from, to, item, itemarr)
-      return itemarr
-    else
-      raise "query_into failed"
-    end
-  end
-
-  def self.db_query_min(db, query={})
-    from, to = build_query(query)
-    item = new()
-    return db.query_min(from, to, item)
   end
 
   #

@@ -38,11 +38,12 @@ class TestRecordModelMMDB < Test::Unit::TestCase
     end
 
     db.put_bulk(arr)
+    db.commit
 
-    assert_equal 6, @klass.db_query_to_a(db, :d => 5 .. 10).size
-    assert_equal 3, @klass.db_query_to_a(db, :a => 0, :d => 5 .. 10).size
-    assert_equal 3, @klass.db_query_to_a(db, :a => 1, :d => 5 .. 10).size
-    assert_equal 0, @klass.db_query_to_a(db, :a => 2, :d => 5 .. 10).size
+    assert_equal 6, db.query(@klass, :d => 5 .. 10).count
+    assert_equal 3, db.query(@klass, :a => 0, :d => 5 .. 10).count
+    assert_equal 3, db.query(@klass, :a => 1, :d => 5 .. 10).count
+    assert_equal 0, db.query(@klass, :a => 2, :d => 5 .. 10).count
 
     db.close
   end

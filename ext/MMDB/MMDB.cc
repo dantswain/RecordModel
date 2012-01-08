@@ -497,6 +497,8 @@ private:
   }
 
 
+public:
+
   size_t get_num_slices_for_read()
   {
     size_t s;
@@ -509,20 +511,17 @@ private:
     return s;
   }
 
-public:
 
   /*
    * Queries all slices
+   * "slices" is equal to snapshots.
    */
-  int query_all(const RecordModelInstance *range_from, const RecordModelInstance *range_to,
+  int query_all(size_t slices, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
                  RecordModelInstance *current,
                  int (*iterator)(RecordModelInstance*, void*), void *data)
   {
     int iter = ITER_CONTINUE;
     size_t offs = 0;
-    size_t slices;
-
-    slices = get_num_slices_for_read();
 
     /*
      * We set a read lock here so a _ptr of a MmapFile cannot be ripped out under us.
@@ -575,13 +574,13 @@ public:
   /*
    * Returns the smallest element in current. If no element was found, returns false. 
    */
-  bool query_min(const RecordModelInstance *range_from, const RecordModelInstance *range_to,
+  bool query_min(size_t slices, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
              RecordModelInstance *current)
   {
     min_iter_data data;
     data.min = NULL;
 
-    query_all(range_from, range_to, current, min_iter, &data);
+    query_all(slices, range_from, range_to, current, min_iter, &data);
 
     if (data.min)
     {
@@ -693,7 +692,7 @@ int yield_iter(RecordModelInstance *current, void *data)
 }
 
 static
-VALUE MMDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
+VALUE MMDB_query_each(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE _snapshot)
 {
   MMDB *db;
   Data_Get_Struct(self, MMDB, db);
@@ -713,7 +712,9 @@ VALUE MMDB_query(VALUE self, VALUE _from, VALUE _to, VALUE _current)
   struct yield_iter_data d;
   d._current = _current;
 
-  db->query_all(from, to, current, yield_iter, &d); 
+  size_t snapshot = NUM2ULONG(_snapshot);
+
+  db->query_all(snapshot, from, to, current, yield_iter, &d); 
 
   return Qnil;
 }
@@ -737,6 +738,7 @@ struct Params_query_into
   RecordModelInstance *to;
   RecordModelInstance *current;
   RecordModelInstanceArray *arr;
+  size_t snapshot;
 };
 
 static
@@ -746,7 +748,7 @@ VALUE query_into(void *a)
   struct array_fill_iter_data d;
   d.arr = p->arr;
 
-  int iter = p->db->query_all(p->from, p->to, p->current, array_fill_iter, &d); 
+  int iter = p->db->query_all(p->snapshot, p->from, p->to, p->current, array_fill_iter, &d); 
 
   if (iter == MMDB::ITER_STOP)
     return Qfalse;
@@ -755,7 +757,7 @@ VALUE query_into(void *a)
 }
 
 static
-VALUE MMDB_query_into(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE _arr)
+VALUE MMDB_query_into(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE _arr, VALUE _snapshot)
 {
   Params_query_into p;
   Data_Get_Struct(self, MMDB, p.db);
@@ -770,6 +772,8 @@ VALUE MMDB_query_into(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE 
   assert(p.from->model == p.current->model);
   assert(p.from->model == p.db->model);
 
+  p.snapshot = NUM2ULONG(_snapshot);
+
   return rb_thread_blocking_region(query_into, &p, NULL, NULL);
 }
 
@@ -778,7 +782,7 @@ VALUE query_min(void *a)
 {
   Params_query_into *p = (Params_query_into*)a;
 
-  bool found = p->db->query_min(p->from, p->to, p->current); 
+  bool found = p->db->query_min(p->snapshot, p->from, p->to, p->current); 
 
   return (found ? Qtrue : Qfalse);
 }
@@ -789,7 +793,7 @@ VALUE query_min(void *a)
  * If records with equal keys exist, the first found is used.
  */
 static
-VALUE MMDB_query_min(VALUE self, VALUE _from, VALUE _to, VALUE _current)
+VALUE MMDB_query_min(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE _snapshot)
 {
   Params_query_into p;
   Data_Get_Struct(self, MMDB, p.db);
@@ -801,6 +805,8 @@ VALUE MMDB_query_min(VALUE self, VALUE _from, VALUE _to, VALUE _current)
   assert(p.from->model == p.to->model);
   assert(p.from->model == p.current->model);
   assert(p.from->model == p.db->model);
+
+  p.snapshot = NUM2ULONG(_snapshot);
 
   VALUE res = rb_thread_blocking_region(query_min, &p, NULL, NULL);
   if (RTEST(res))
@@ -834,7 +840,15 @@ VALUE MMDB_commit(VALUE self)
 
   return res;
 }
- 
+
+static
+VALUE MMDB_snapshot(VALUE self)
+{
+  MMDB *db;  
+  Data_Get_Struct(self, MMDB, db);
+  return ULONG2NUM(db->get_num_slices_for_read());
+}
+
 extern "C"
 void Init_RecordModelMMDBExt()
 {
@@ -842,8 +856,9 @@ void Init_RecordModelMMDBExt()
   rb_define_singleton_method(cMMDB, "open", (VALUE (*)(...)) MMDB__open, 7);
   rb_define_method(cMMDB, "close", (VALUE (*)(...)) MMDB_close, 0);
   rb_define_method(cMMDB, "put_bulk", (VALUE (*)(...)) MMDB_put_bulk, 1);
-  rb_define_method(cMMDB, "query", (VALUE (*)(...)) MMDB_query, 3);
-  rb_define_method(cMMDB, "query_into", (VALUE (*)(...)) MMDB_query_into, 4);
-  rb_define_method(cMMDB, "query_min", (VALUE (*)(...)) MMDB_query_min, 3);
+  rb_define_method(cMMDB, "query_each", (VALUE (*)(...)) MMDB_query_each, 4);
+  rb_define_method(cMMDB, "query_into", (VALUE (*)(...)) MMDB_query_into, 5);
+  rb_define_method(cMMDB, "query_min", (VALUE (*)(...)) MMDB_query_min, 4);
   rb_define_method(cMMDB, "commit", (VALUE (*)(...)) MMDB_commit, 0);
+  rb_define_method(cMMDB, "snapshot", (VALUE (*)(...)) MMDB_snapshot, 0);
 }
