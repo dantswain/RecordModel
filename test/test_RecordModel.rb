@@ -2,7 +2,7 @@ require 'test/unit'
 
 $LOAD_PATH << "../ext/RecordModel" 
 $LOAD_PATH << "../lib" 
-require 'RecordModel'
+require 'RecordModel/RecordModel'
 
 class TestRecordModel < Test::Unit::TestCase
 
@@ -62,7 +62,7 @@ class TestRecordModel < Test::Unit::TestCase
     #min_max(rec, 4, -(1.0/0), (1.0/0)) # XXX: min/max for float
     min_max(rec, 5, '00' * 16, 'FF' * 16)
     min_max(rec, 6, 0, 2**64 - 1)
-    min_max(rec, 7, 0, 2**64 - 1)
+    min_max(rec, 7, 2**64 - 1, 0)
   end
 
   def min_max(rec, fld, min, max)

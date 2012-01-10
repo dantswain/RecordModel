@@ -1,18 +1,19 @@
 require 'RecordModelMMDBExt'
-require 'RecordModelQuery'
+require 'RecordModel/RecordModel'
+require 'RecordModel/Query'
 
-class RecordModelMMDB
+class MMDB < RecordModelMMDB
   # Redefine snapshot method
   def snapshot
-    RecordModelMMDB::Snapshot.new(self, get_snapshot_num())
+    MMDB::Snapshot.new(self, get_snapshot_num())
   end
 
   def query(klass, *queries)
-    RecordModelQuery.new(self.snapshot, klass, *queries)
+    RecordModel::Query.new(self.snapshot, klass, *queries)
   end
 end
 
-class RecordModelMMDB::Snapshot
+class MMDB::Snapshot
   def initialize(db, snapshot)
     @db, @snapshot = db, snapshot
   end
@@ -26,7 +27,7 @@ class RecordModelMMDB::Snapshot
   end
 
   def query(klass, *queries)
-    RecordModelQuery.new(self, klass, *queries)
+    RecordModel::Query.new(self, klass, *queries)
   end
 
   def query_each(from, to, item, &block)

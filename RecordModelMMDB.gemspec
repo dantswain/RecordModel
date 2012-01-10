@@ -6,7 +6,7 @@ spec = Gem::Specification.new do |s|
   s.license = 'BSD License'
   s.files = ['README', 'RecordModelMMDB.gemspec',
              'include/RecordModel.h', 'include/RM_Types.h',
-             'lib/RecordModelMMDB.rb',
+             'lib/MMDB/MMDB.rb',
              'ext/MMDB/MMDB.cc', 'ext/MMDB/MmapFile.h',
              'ext/MMDB/extconf.rb']
   s.extensions = ['ext/MMDB/extconf.rb']

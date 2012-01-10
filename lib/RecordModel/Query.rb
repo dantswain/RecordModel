@@ -1,4 +1,6 @@
-class RecordModelQuery
+require 'RecordModel/RecordModel'
+
+class RecordModel::Query
   def initialize(db, klass, *queries)
     @db = db
     @klass = klass
