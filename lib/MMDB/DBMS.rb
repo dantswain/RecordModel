@@ -42,16 +42,17 @@ module MMDB
         raise ArgumentError if @dbs[id]
         hint0 ||= 1024 
         hint1 ||= 1024*1024
-        db = DB.open(klass.model, File.join(@dirname, "db_#{id}_", cr[id][0], hint0, cr[id][1], hint1, @readonly)
+        db = DB.open(klass.model, File.join(@dirname, "db_#{id}_"), cr[id][0], hint0, cr[id][1], hint1, @readonly)
         raise "Cannot open a database" unless db
         @dbs[id] = db
       end
 
       if block
-      begin
-        yield self
-      ensure
-        close
+        begin
+          yield self
+        ensure
+          close
+        end
       end
     end
 
