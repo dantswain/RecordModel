@@ -5,17 +5,32 @@ require 'RecordModel/Query'
 module MMDB
 
   class DB < RecordModelMMDB
+
+    attr_accessor :modelklass
+
+    def self.open(modelklass, path, *args)
+      db = super(modelklass.model, path, *args)
+      if db
+        db.modelklass = modelklass
+      end
+      db
+    end
+
     # Redefine snapshot method
     def snapshot
       DB::Snapshot.new(self, get_snapshot_num())
     end
 
-    def query(klass, *queries)
-      RecordModel::Query.new(self.snapshot, klass, *queries)
+    def query(*queries)
+      RecordModel::Query.new(self.snapshot, self.modelklass, *queries)
     end
   end
 
   class DB::Snapshot
+    def modelklass
+      @db.modelklass
+    end
+
     def initialize(db, snapshot)
       @db, @snapshot = db, snapshot
     end
@@ -29,7 +44,7 @@ module MMDB
     end
 
     def query(klass, *queries)
-      RecordModel::Query.new(self, klass, *queries)
+      RecordModel::Query.new(self, self.modelklass, *queries)
     end
 
     def query_each(from, to, item, &block)

@@ -22,7 +22,7 @@ class TestMMDB < Test::Unit::TestCase
 
   def test_open
     `mkdir -p ./tmp.test/db`
-    db = MMDB::DB.open(@klass.model, "./tmp.test/db/", 0, 0, 0, 0, false) 
+    db = MMDB::DB.open(@klass, "./tmp.test/db/", 0, 0, 0, 0, false) 
     db.close
     `rm -rf ./tmp.test/db`
   end
@@ -30,7 +30,7 @@ class TestMMDB < Test::Unit::TestCase
   def test_write_and_query
     `rm -rf ./tmp.test/db`
     `mkdir -p ./tmp.test/db`
-    db = MMDB::DB.open(@klass.model, "./tmp.test/db/", 0, 1, 0, 100_000, false) 
+    db = MMDB::DB.open(@klass, "./tmp.test/db/", 0, 1, 0, 100_000, false) 
 
     arr = @klass.make_array(100_000)
     100_000.times do |i|
@@ -39,10 +39,10 @@ class TestMMDB < Test::Unit::TestCase
 
     db.put_bulk(arr)
 
-    assert_equal 6, db.query(@klass, :d => 5 .. 10).count
-    assert_equal 3, db.query(@klass, :a => 0, :d => 5 .. 10).count
-    assert_equal 3, db.query(@klass, :a => 1, :d => 5 .. 10).count
-    assert_equal 0, db.query(@klass, :a => 2, :d => 5 .. 10).count
+    assert_equal 6, db.query(:d => 5 .. 10).count
+    assert_equal 3, db.query(:a => 0, :d => 5 .. 10).count
+    assert_equal 3, db.query(:a => 1, :d => 5 .. 10).count
+    assert_equal 0, db.query(:a => 2, :d => 5 .. 10).count
 
     db.close
   end
