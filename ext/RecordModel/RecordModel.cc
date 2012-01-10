@@ -50,14 +50,14 @@ void RecordModel__mark(void *ptr)
   mark_RecordModel((RecordModel*)ptr);
 }
 
-inline static
+static
 bool is_RecordModel(VALUE obj)
 {
   return (TYPE(obj) == T_DATA && 
       RDATA(obj)->dfree == (RUBY_DATA_FUNC)(RecordModel__free));
 }
 
-inline static
+static
 RecordModel* get_RecordModel_nocheck(VALUE obj)
 {
   RecordModel *ptr;
@@ -66,7 +66,7 @@ RecordModel* get_RecordModel_nocheck(VALUE obj)
   return ptr;
 }
 
-inline static
+static
 RecordModel* get_RecordModel(VALUE obj)
 {
   if (!is_RecordModel(obj))
