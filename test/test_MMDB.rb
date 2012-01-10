@@ -4,7 +4,7 @@ $LOAD_PATH << "../ext/RecordModel"
 $LOAD_PATH << "../ext/MMDB" 
 $LOAD_PATH << "../lib" 
 require 'RecordModel/RecordModel'
-require 'MMDB/MMDB'
+require 'MMDB/DB'
 
 class TestMMDB < Test::Unit::TestCase
 
@@ -22,7 +22,7 @@ class TestMMDB < Test::Unit::TestCase
 
   def test_open
     `mkdir -p ./tmp.test/db`
-    db = MMDB.open(@klass.model, "./tmp.test/db/", 0, 0, 0, 0, false) 
+    db = MMDB::DB.open(@klass.model, "./tmp.test/db/", 0, 0, 0, 0, false) 
     db.close
     `rm -rf ./tmp.test/db`
   end
@@ -30,7 +30,7 @@ class TestMMDB < Test::Unit::TestCase
   def test_write_and_query
     `rm -rf ./tmp.test/db`
     `mkdir -p ./tmp.test/db`
-    db = MMDB.open(@klass.model, "./tmp.test/db/", 0, 1, 0, 100_000, false) 
+    db = MMDB::DB.open(@klass.model, "./tmp.test/db/", 0, 1, 0, 100_000, false) 
 
     arr = @klass.make_array(100_000)
     100_000.times do |i|
