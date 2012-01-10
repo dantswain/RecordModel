@@ -81,11 +81,16 @@ public:
       return false;
     }
 
-    if (capacity < 1L<<20)
-      capacity = 1L<<20;
-
     if (capacity < size)
+    {
       capacity = size;
+    }
+    else if (!readonly && capacity < 1L<<20)
+    {
+        capacity = 1L<<20;
+    }
+
+    assert(capacity >= size);
 
     if (!readonly)
     {
