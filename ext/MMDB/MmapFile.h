@@ -84,6 +84,9 @@ public:
     if (capacity < 1L<<20)
       capacity = 1L<<20;
 
+    if (capacity < size)
+      capacity = size;
+
     if (!readonly)
     {
       err = ftruncate(fh, capacity); 
