@@ -7,7 +7,7 @@ module MMDB
   class DB < RecordModelMMDB
     # Redefine snapshot method
     def snapshot
-      Snapshot.new(self, get_snapshot_num())
+      DB::Snapshot.new(self, get_snapshot_num())
     end
 
     def query(klass, *queries)
@@ -15,7 +15,7 @@ module MMDB
     end
   end
 
-  class Snapshot
+  class DB::Snapshot
     def initialize(db, snapshot)
       @db, @snapshot = db, snapshot
     end
