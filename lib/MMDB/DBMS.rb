@@ -102,8 +102,6 @@ module MMDB
       @dbs = {}
     end
 
-    private
-
     def get_db(dbid)
       db = @dbs[dbid]
       raise ArgumentError, "#{dbid} not a valid DB" unless db
@@ -123,8 +121,6 @@ module MMDB
     def query(dbid, *args, &block)
       get_db(dbid).query(*args, &block)
     end
-
-    private
 
     def get_db(dbid)
       db = @dbs[dbid]
