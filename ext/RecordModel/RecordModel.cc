@@ -706,6 +706,8 @@ VALUE RecordModelInstanceArray_each_sorted(VALUE _self, VALUE _rec)
     rb_raise(rb_eArgError, "Model mismatch");
   }
 
+  self->sort();
+  
   for (size_t i = 0; i < self->entries(); ++i)
   {
     self->copy(rec, self->sorted_idx(i));
