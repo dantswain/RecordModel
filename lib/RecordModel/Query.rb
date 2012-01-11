@@ -4,8 +4,12 @@ class RecordModel::Query
   def initialize(db, klass, *queries)
     @db = db
     @klass = klass
-    @queries = queries
-    @ranges = queries.map {|q| klass.build_query(q)}
+    if queries.empty?
+      @queries = [{}]
+    else
+      @queries = queries
+    end
+    @ranges = @queries.map {|q| klass.build_query(q)}
   end
 
   def each(&block)
