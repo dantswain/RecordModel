@@ -54,6 +54,23 @@ struct RM_UInt : RM_Type
     return ULONG2NUM(element(a));
   }
 
+  int8_t order; // -1 means ascending, +1 means descending
+
+  RM_UInt()
+  {
+    order = -1;
+  }
+
+  void ascending()
+  {
+    order = -1;
+  }
+
+  void descending()
+  {
+    order = 1
+  }
+
   void _set_uint(void *a, uint64_t v)
   {
     if (!(v >= std::numeric_limits<NT>::min() &&
@@ -105,12 +122,12 @@ struct RM_UInt : RM_Type
 
   virtual void set_min(void *a)
   {
-    element(a) = std::numeric_limits<NT>::min();
+    element(a) = (order < 0) ? std::numeric_limits<NT>::min() : std::numeric_limits<NT>::max();
   }
 
   virtual void set_max(void *a)
   {
-    element(a) = std::numeric_limits<NT>::max();
+    element(a) = (order < 0) ? std::numeric_limits<NT>::max() : std::numeric_limits<NT>::min();
   }
 
   virtual void add(void *a, const void *b)
@@ -120,7 +137,7 @@ struct RM_UInt : RM_Type
 
   virtual void inc(void *a)
   {
-    ++element(a);
+    element(a) += (-order);
   }
  
   virtual void copy(void *a, const void *b)
@@ -130,31 +147,31 @@ struct RM_UInt : RM_Type
 
   virtual int between(const void *c, const void *l, const void *r)
   {
-    if (element(c) < element(l)) return -1;
-    if (element(c) > element(r)) return 1;
+    if (element(c) < element(l)) return order;
+    if (element(c) > element(r)) return -order;
     return 0;
   }
 
   virtual int memory_between(const void *mem, const void *l, const void *r)
   {
     NT c = *((const NT*)mem);
-    if (c < element(l)) return -1;
-    if (c > element(r)) return 1;
+    if (c < element(l)) return order;
+    if (c > element(r)) return -order;
     return 0;
   }
 
   virtual int compare(const void *a, const void *b)
   {
-    if (element(a) < element(b)) return -1;
-    if (element(a) > element(b)) return 1;
+    if (element(a) < element(b)) return order;
+    if (element(a) > element(b)) return -order;
     return 0;
   }
 
   virtual int compare_with_memory(const void *a, const void *mem)
   {
     NT b = *((const NT*)mem);
-    if (element(a) < b) return -1;
-    if (element(a) > b) return 1;
+    if (element(a) < b) return order;
+    if (element(a) > b) return -order;
     return 0;
   }
 };
@@ -213,37 +230,6 @@ struct RM_TIMESTAMP : RM_UInt<uint64_t>
   virtual void set_from_string(void *a, const char *s, const char *e)
   {
     _set_uint(a, conv_str_to_uint2(s, e, 3));
-  }
-};
-
-/*
- * Timestamps in descending order
- */
-struct RM_TIMESTAMP_DESC : RM_TIMESTAMP
-{
-  virtual void inc(void *a)
-  {
-    --element(a);
-  }
-
-  virtual void set_min(void *a)
-  {
-    RM_TIMESTAMP::set_max(a);
-  }
-
-  virtual void set_max(void *a)
-  {
-    RM_TIMESTAMP::set_min(a);
-  }
-
-  virtual int compare(const void *a, const void *b)
-  {
-    return -RM_TIMESTAMP::compare(a, b);
-  }
-
-  virtual int compare_with_memory(const void *a, const void *mem)
-  {
-    return -RM_TIMESTAMP::compare_with_memory(a, mem);
   }
 };
 
