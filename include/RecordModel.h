@@ -350,7 +350,7 @@ struct RecordModelInstanceArray
 
     if (sort_arr)
       sort_arr->push_back(_entries);
-    RecordModelInstance dst(this->model, element_n(_entries));
+    RecordModelInstance dst(this->model, element_n(_entries)); // NOTE: we have to use element_n here, NOT ptr_at!
     dst.copy(rec);
 
     ++_entries;
@@ -358,14 +358,14 @@ struct RecordModelInstanceArray
   }
 
   /*
-   * Copies element at index 'i' into 'rec'
+   * Copies element at index 'i' (in sorted order) into 'rec'
    */
   void copy(RecordModelInstance *rec, size_t i)
   {
     assert(i < _entries);
     assert(model == rec->model);
 
-    RecordModelInstance src(this->model, element_n(i));
+    RecordModelInstance src(this->model, ptr_at(i));
     rec->copy(&src);
   }
 
@@ -393,32 +393,26 @@ struct RecordModelInstanceArray
   }
 
   /*
-   * Returns the sorted index of element i
+   * 'i' is in sorted order
    */
-  SORT_IDX sorted_idx(size_t i)
+  inline void *ptr_at(size_t i)
   {
     assert(i < _entries);
     SORT_IDX k = sort_arr ? (*sort_arr)[i] : i;
     assert(k < _entries);
-    return k;
+    return element_n(k);
   }
 
-  void *ptr_at(size_t i)
-  {
-    assert(i < _entries);
-    return element_n(i);
-  }
-
-  void *ptr_at_sorted(size_t i)
-  {
-    return ptr_at(sorted_idx(i)); 
-  }
+private:
 
   inline size_t element_size()
   {
     return model->size();
   }
 
+  /*
+   * 'n' is in raw order (un-sorted)
+   */
   inline void *element_n(size_t n)
   {
     assert(n < _capacity);

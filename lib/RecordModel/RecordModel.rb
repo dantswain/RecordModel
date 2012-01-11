@@ -198,11 +198,6 @@ class RecordModelInstanceArray
     old_each(instance || @model_klass.new, &block)
   end
 
-  alias old_each_sorted each_sorted
-  def each_sorted(instance=nil, &block)
-    old_each_sorted(instance || @model_klass.new, &block)
-  end
-
   def inspect
     [self.class, to_a]
   end

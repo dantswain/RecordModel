@@ -234,8 +234,8 @@ end:
 
       for (size_t i = 1; i < n; ++i)
       {
-	ia._ptr = arr->ptr_at_sorted(i-1);
-	ib._ptr = arr->ptr_at_sorted(i);
+	ia._ptr = arr->ptr_at(i-1);
+	ib._ptr = arr->ptr_at(i);
 	assert(ia.compare_keys(&ib) <= 0);
       }
     }
@@ -258,7 +258,7 @@ end:
 
     for (size_t i = 0; i < n; ++i)
     {
-      void *rec_ptr = arr->ptr_at_sorted(i);
+      void *rec_ptr = arr->ptr_at(i);
 
       // copy data
       for (size_t k = 0; k < model->_num_values; ++k)

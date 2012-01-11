@@ -696,25 +696,10 @@ VALUE RecordModelInstanceArray_each(VALUE _self, VALUE _rec)
 }
 
 static
-VALUE RecordModelInstanceArray_each_sorted(VALUE _self, VALUE _rec)
+VALUE RecordModelInstanceArray_sort(VALUE _self)
 {
-  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
-  RecordModelInstance *rec = get_RecordModelInstance(_rec);
-
-  if (self->model != rec->model)
-  {
-    rb_raise(rb_eArgError, "Model mismatch");
-  }
-
-  self->sort();
-  
-  for (size_t i = 0; i < self->entries(); ++i)
-  {
-    self->copy(rec, self->sorted_idx(i));
-    rb_yield(_rec);
-  }
-
-  return Qnil;
+  get_RecordModelInstanceArray(_self)->sort();
+  return _self;
 }
 
 
@@ -751,5 +736,5 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstanceArray, "capacity", (VALUE (*)(...)) RecordModelInstanceArray_capacity, 0);
   rb_define_method(cRecordModelInstanceArray, "expandable?", (VALUE (*)(...)) RecordModelInstanceArray_expandable, 0);
   rb_define_method(cRecordModelInstanceArray, "each", (VALUE (*)(...)) RecordModelInstanceArray_each, 1);
-  rb_define_method(cRecordModelInstanceArray, "each_sorted", (VALUE (*)(...)) RecordModelInstanceArray_each_sorted, 1);
+  rb_define_method(cRecordModelInstanceArray, "sort", (VALUE (*)(...)) RecordModelInstanceArray_sort, 0);
 }
