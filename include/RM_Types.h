@@ -13,6 +13,13 @@ struct RM_Type
 {
   uint16_t _offset;
 
+  int8_t order; // -1 means ascending, +1 means descending
+
+  RM_Type()
+  {
+    order = -1;
+  }
+
   inline uint16_t offset() { return _offset; } 
 
   virtual uint8_t size() = 0;
@@ -38,6 +45,16 @@ struct RM_Type
 
   // mem is not a pointer to a record, but to the field itself
   virtual int compare_with_memory(const void *a, const void *mem) = 0;
+
+  virtual void ascending()
+  {
+    order = -1;
+  }
+
+  virtual void descending()
+  {
+    order = 1;
+  }
 };
 
 template <typename NT>
@@ -52,23 +69,6 @@ struct RM_UInt : RM_Type
   virtual VALUE to_ruby(const void *a)
   {
     return ULONG2NUM(element(a));
-  }
-
-  int8_t order; // -1 means ascending, +1 means descending
-
-  RM_UInt()
-  {
-    order = -1;
-  }
-
-  void ascending()
-  {
-    order = -1;
-  }
-
-  void descending()
-  {
-    order = 1
   }
 
   void _set_uint(void *a, uint64_t v)
