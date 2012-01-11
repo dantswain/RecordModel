@@ -274,11 +274,12 @@ struct RecordModelInstanceArray
     _capacity = 0;
     _entries = 0;
     expandable = false;
+    sort_arr = NULL;
   }
 
   bool is_virgin()
   {
-    return (model == NULL && _ptr == NULL && _capacity == 0 && _entries == 0 && expandable == false);
+    return (model == NULL && _ptr == NULL && _capacity == 0 && _entries == 0 && expandable == false && sort_arr == NULL);
   }
 
   ~RecordModelInstanceArray()
