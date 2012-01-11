@@ -7,6 +7,13 @@
 #include <pthread.h>
 
 /*
+ * Declared in ../RecordModel/RecordModel.cc
+ */
+extern RecordModel* get_RecordModel(VALUE);
+extern RecordModelInstance* get_RecordModelInstance(VALUE);
+extern RecordModelInstanceArray* get_RecordModelInstanceArray(VALUE);
+
+/*
  * A database consists of:
  *
  *   - One slices file
@@ -605,8 +612,7 @@ VALUE MMDB__open(VALUE klass, VALUE recordmodel, VALUE path_prefix, VALUE num_sl
 {
   Check_Type(path_prefix, T_STRING);
 
-  RecordModel *model;
-  Data_Get_Struct(recordmodel, RecordModel, model);
+  RecordModel *model = get_RecordModel(recordmodel);
 
   MMDB *mdb = new MMDB;
 
@@ -649,7 +655,7 @@ VALUE MMDB_put_bulk(VALUE self, VALUE arr)
   Params p;
 
   Data_Get_Struct(self, MMDB, p.db);
-  Data_Get_Struct(arr, RecordModelInstanceArray, p.arr);
+  p.arr = get_RecordModelInstanceArray(arr);
   p.verify = false;
 
   return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
@@ -673,13 +679,9 @@ VALUE MMDB_query_each(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE 
   MMDB *db;
   Data_Get_Struct(self, MMDB, db);
 
-  RecordModelInstance *from;
-  RecordModelInstance *to;
-  RecordModelInstance *current;
-
-  Data_Get_Struct(_from, RecordModelInstance, from);
-  Data_Get_Struct(_to, RecordModelInstance, to);
-  Data_Get_Struct(_current, RecordModelInstance, current);
+  RecordModelInstance *from = get_RecordModelInstance(_from);
+  RecordModelInstance *to = get_RecordModelInstance(_to);
+  RecordModelInstance *current = get_RecordModelInstance(_current);
 
   assert(from->model == to->model);
   assert(from->model == current->model);
@@ -738,10 +740,10 @@ VALUE MMDB_query_into(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE 
   Params_query_into p;
   Data_Get_Struct(self, MMDB, p.db);
 
-  Data_Get_Struct(_from, RecordModelInstance, p.from);
-  Data_Get_Struct(_to, RecordModelInstance, p.to);
-  Data_Get_Struct(_current, RecordModelInstance, p.current);
-  Data_Get_Struct(_arr, RecordModelInstanceArray, p.arr);
+  p.from = get_RecordModelInstance(_from);
+  p.to = get_RecordModelInstance(_to);
+  p.current = get_RecordModelInstance(_current);
+  p.arr = get_RecordModelInstanceArray(_arr);
 
   assert(p.arr->model == p.from->model);
   assert(p.from->model == p.to->model);
@@ -774,9 +776,9 @@ VALUE MMDB_query_min(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE _
   Params_query_into p;
   Data_Get_Struct(self, MMDB, p.db);
 
-  Data_Get_Struct(_from, RecordModelInstance, p.from);
-  Data_Get_Struct(_to, RecordModelInstance, p.to);
-  Data_Get_Struct(_current, RecordModelInstance, p.current);
+  p.from = get_RecordModelInstance(_from);
+  p.to = get_RecordModelInstance(_to);
+  p.current = get_RecordModelInstance(_current);
 
   assert(p.from->model == p.to->model);
   assert(p.from->model == p.current->model);

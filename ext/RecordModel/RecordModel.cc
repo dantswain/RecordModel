@@ -66,7 +66,6 @@ RecordModel* get_RecordModel_nocheck(VALUE obj)
   return ptr;
 }
 
-static
 RecordModel* get_RecordModel(VALUE obj)
 {
   if (!is_RecordModel(obj))
@@ -266,14 +265,14 @@ void RecordModelInstance__mark(void *ptr)
   }
 }
 
-inline static
+static
 bool is_RecordModelInstance(VALUE obj)
 {
   return (TYPE(obj) == T_DATA && 
       RDATA(obj)->dfree == (RUBY_DATA_FUNC)(RecordModelInstance__free));
 }
 
-inline static
+static
 RecordModelInstance* get_RecordModelInstance_nocheck(VALUE obj)
 {
   RecordModelInstance *ptr;
@@ -282,7 +281,6 @@ RecordModelInstance* get_RecordModelInstance_nocheck(VALUE obj)
   return ptr;
 }
 
-inline static
 RecordModelInstance* get_RecordModelInstance(VALUE obj)
 {
   if (!is_RecordModelInstance(obj))
@@ -552,13 +550,29 @@ VALUE RecordModelInstanceArray__allocate(VALUE klass)
   return obj;
 }
 
-inline static
-RecordModelInstanceArray* get_RecordModelInstanceArray(VALUE obj)
+static
+bool is_RecordModelInstanceArray(VALUE obj)
+{
+  return (TYPE(obj) == T_DATA && 
+      RDATA(obj)->dfree == (RUBY_DATA_FUNC)(RecordModelInstanceArray__free));
+}
+
+static
+RecordModelInstanceArray* get_RecordModelInstanceArray_nocheck(VALUE obj)
 {
   RecordModelInstanceArray *ptr;
   Data_Get_Struct(obj, RecordModelInstanceArray, ptr);
   assert(ptr);
   return ptr;
+}
+
+RecordModelInstanceArray* get_RecordModelInstanceArray(VALUE obj)
+{
+  if (!is_RecordModelInstanceArray(obj))
+  {
+    rb_raise(rb_eTypeError, "wrong argument type");
+  }
+  return get_RecordModelInstanceArray_nocheck(obj);
 }
 
 static
