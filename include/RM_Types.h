@@ -13,11 +13,11 @@ struct RM_Type
 {
   uint16_t _offset;
 
-  int8_t order; // -1 means ascending, +1 means descending
+  bool order; // true means ascending, false means descending
 
   RM_Type()
   {
-    order = -1;
+    order = true;
   }
 
   inline uint16_t offset() { return _offset; } 
@@ -48,12 +48,12 @@ struct RM_Type
 
   virtual void ascending()
   {
-    order = -1;
+    order = true;
   }
 
   virtual void descending()
   {
-    order = 1;
+    order = false;
   }
 };
 
@@ -122,12 +122,12 @@ struct RM_UInt : RM_Type
 
   virtual void set_min(void *a)
   {
-    element(a) = (order < 0) ? std::numeric_limits<NT>::min() : std::numeric_limits<NT>::max();
+    element(a) = order ? std::numeric_limits<NT>::min() : std::numeric_limits<NT>::max();
   }
 
   virtual void set_max(void *a)
   {
-    element(a) = (order < 0) ? std::numeric_limits<NT>::max() : std::numeric_limits<NT>::min();
+    element(a) = order ? std::numeric_limits<NT>::max() : std::numeric_limits<NT>::min();
   }
 
   virtual void add(void *a, const void *b)
@@ -137,7 +137,8 @@ struct RM_UInt : RM_Type
 
   virtual void inc(void *a)
   {
-    element(a) += (-order);
+    if (order) ++element(a);
+    else --element(a);
   }
  
   virtual void copy(void *a, const void *b)
@@ -145,34 +146,52 @@ struct RM_UInt : RM_Type
     element(a) = element(b);
   }
 
+  inline int betw(NT c, NT l, NT r)
+  {
+    if (!order)
+    {
+      // swap l and r
+      NT t = l;
+      l = r;
+      r = t;
+    }
+    if (c < l) return -1;
+    if (c > r) return 1;
+    return 0;
+  }
+
+  inline int cmp(NT a, NT b)
+  {
+    if (!order)
+    {
+      // swap l and r
+      NT t = a;
+      a = b;
+      b = t;
+    }
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+  }
+
   virtual int between(const void *c, const void *l, const void *r)
   {
-    if (element(c) < element(l)) return order;
-    if (element(c) > element(r)) return -order;
-    return 0;
+    return betw(element(c), element(l), element(r));
   }
 
   virtual int memory_between(const void *mem, const void *l, const void *r)
   {
-    NT c = *((const NT*)mem);
-    if (c < element(l)) return order;
-    if (c > element(r)) return -order;
-    return 0;
+    return betw(*((const NT*)mem), element(l), element(r));
   }
 
   virtual int compare(const void *a, const void *b)
   {
-    if (element(a) < element(b)) return order;
-    if (element(a) > element(b)) return -order;
-    return 0;
+    return cmp(element(a), element(b));
   }
 
   virtual int compare_with_memory(const void *a, const void *mem)
   {
-    NT b = *((const NT*)mem);
-    if (element(a) < b) return order;
-    if (element(a) > b) return -order;
-    return 0;
+    return cmp(element(a), *((const NT*)mem));
   }
 };
 
@@ -233,6 +252,7 @@ struct RM_TIMESTAMP : RM_UInt<uint64_t>
   }
 };
 
+// XXX: ascending, descending!
 struct RM_DOUBLE : RM_Type 
 {
   typedef double NT;
@@ -334,6 +354,7 @@ struct RM_DOUBLE : RM_Type
   }
 };
 
+// XXX: ascending, descending
 struct RM_HEXSTR : RM_Type
 {
   uint8_t _size;
