@@ -43,7 +43,7 @@ module MMDB
       @snapshot
     end
 
-    def query(klass, *queries)
+    def query(*queries)
       RecordModel::Query.new(self, self.modelklass, *queries)
     end
 
