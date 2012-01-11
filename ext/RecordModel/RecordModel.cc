@@ -172,42 +172,34 @@ VALUE RecordModel_initialize(VALUE self, VALUE fields)
     if (ID2SYM(rb_intern("uint64")) == e_type)
     {
       t = new RM_UINT64();
-      t->ascending();
     }
     else if (ID2SYM(rb_intern("uint32")) == e_type)
     {
       t = new RM_UINT32();
-      t->ascending();
     }
     else if (ID2SYM(rb_intern("uint16")) == e_type)
     {
       t = new RM_UINT16();
-      t->ascending();
     }
     else if (ID2SYM(rb_intern("uint8")) == e_type)
     {
       t = new RM_UINT8();
-      t->ascending();
     }
     else if (ID2SYM(rb_intern("timestamp")) == e_type)
     {
       t = new RM_TIMESTAMP();
-      t->ascending();
     }
     else if (ID2SYM(rb_intern("timestamp_desc")) == e_type)
     {
-      t = new RM_TIMESTAMP();
-      t->descending();
+      t = new RM_TIMESTAMP_DESC();
     }
     else if (ID2SYM(rb_intern("double")) == e_type)
     {
       t = new RM_DOUBLE();
-      t->ascending();
     }
     else if (ID2SYM(rb_intern("hexstr")) == e_type)
     {
       t = new RM_HEXSTR(length);
-      t->ascending();
     }
     else
     {

@@ -13,13 +13,6 @@ struct RM_Type
 {
   uint16_t _offset;
 
-  bool order; // true means ascending, false means descending
-
-  RM_Type()
-  {
-    order = true;
-  }
-
   inline uint16_t offset() { return _offset; } 
 
   virtual uint8_t size() = 0;
@@ -45,19 +38,10 @@ struct RM_Type
 
   // mem is not a pointer to a record, but to the field itself
   virtual int compare_with_memory(const void *a, const void *mem) = 0;
-
-  virtual void ascending()
-  {
-    order = true;
-  }
-
-  virtual void descending()
-  {
-    order = false;
-  }
 };
 
-template <typename NT>
+// order=true ==> ascending, order=false descending
+template <typename NT, bool order=true>
 struct RM_UInt : RM_Type
 {
   inline NT *element_ptr(void *data) { return (NT*) (((char*)data)+offset()); }
@@ -105,104 +89,6 @@ struct RM_UInt : RM_Type
     return v;
   }
 
-  virtual void set_from_string(void *a, const char *s, const char *e)
-  {
-    _set_uint(a, conv_str_to_uint(s, e));
-  }
-
-  virtual void set_from_memory(void *a, const void *ptr)
-  {
-    element(a) = *((const NT*)ptr);
-  }
-
-  virtual void copy_to_memory(const void *a, void *ptr)
-  {
-    *((NT*)ptr) = element(a); 
-  }
-
-  virtual void set_min(void *a)
-  {
-    element(a) = order ? std::numeric_limits<NT>::min() : std::numeric_limits<NT>::max();
-  }
-
-  virtual void set_max(void *a)
-  {
-    element(a) = order ? std::numeric_limits<NT>::max() : std::numeric_limits<NT>::min();
-  }
-
-  virtual void add(void *a, const void *b)
-  {
-    element(a) += element(b);
-  }
-
-  virtual void inc(void *a)
-  {
-    if (order) ++element(a);
-    else --element(a);
-  }
- 
-  virtual void copy(void *a, const void *b)
-  {
-    element(a) = element(b);
-  }
-
-  inline int betw(NT c, NT l, NT r)
-  {
-    if (!order)
-    {
-      // swap l and r
-      NT t = l;
-      l = r;
-      r = t;
-    }
-    if (c < l) return -1;
-    if (c > r) return 1;
-    return 0;
-  }
-
-  inline int cmp(NT a, NT b)
-  {
-    if (!order)
-    {
-      // swap l and r
-      NT t = a;
-      a = b;
-      b = t;
-    }
-    if (a < b) return -1;
-    if (a > b) return 1;
-    return 0;
-  }
-
-  virtual int between(const void *c, const void *l, const void *r)
-  {
-    return betw(element(c), element(l), element(r));
-  }
-
-  virtual int memory_between(const void *mem, const void *l, const void *r)
-  {
-    return betw(*((const NT*)mem), element(l), element(r));
-  }
-
-  virtual int compare(const void *a, const void *b)
-  {
-    return cmp(element(a), element(b));
-  }
-
-  virtual int compare_with_memory(const void *a, const void *mem)
-  {
-    return cmp(element(a), *((const NT*)mem));
-  }
-};
-
-struct RM_UINT8 : RM_UInt<uint8_t> {}; 
-struct RM_UINT16 : RM_UInt<uint16_t> {};
-struct RM_UINT32 : RM_UInt<uint32_t> {};
-struct RM_UINT64 : RM_UInt<uint64_t> {};
-
-// with millisecond precision
-struct RM_TIMESTAMP : RM_UInt<uint64_t>
-{
   // XXX: handle conversion failures
   static uint64_t conv_str_to_uint2(const char *s, const char *e, int precision)
   {
@@ -246,6 +132,114 @@ struct RM_TIMESTAMP : RM_UInt<uint64_t>
     return v;
   }
 
+  virtual void set_from_string(void *a, const char *s, const char *e)
+  {
+    _set_uint(a, conv_str_to_uint(s, e));
+  }
+
+  virtual void set_from_memory(void *a, const void *ptr)
+  {
+    element(a) = *((const NT*)ptr);
+  }
+
+  virtual void copy_to_memory(const void *a, void *ptr)
+  {
+    *((NT*)ptr) = element(a); 
+  }
+
+  virtual void set_min(void *a)
+  {
+    element(a) = order ? std::numeric_limits<NT>::min() : std::numeric_limits<NT>::max();
+  }
+
+  virtual void set_max(void *a)
+  {
+    element(a) = order ? std::numeric_limits<NT>::max() : std::numeric_limits<NT>::min();
+  }
+
+  virtual void add(void *a, const void *b)
+  {
+    element(a) += element(b);
+  }
+
+  virtual void inc(void *a)
+  {
+    if (order) ++element(a);
+    else --element(a);
+  }
+ 
+  virtual void copy(void *a, const void *b)
+  {
+    element(a) = element(b);
+  }
+
+  inline int betw(const NT &c, const NT &l, const NT &r)
+  {
+    if (order)
+    {
+      if (c < l) return -1;
+      if (c > r) return 1;
+    }
+    else
+    {
+      if (c > l) return -1;
+      if (c < r) return 1;
+    }
+    return 0;
+  }
+
+  inline int cmp(const NT &a, const NT &b)
+  {
+    if (order)
+    {
+      if (a < b) return -1;
+      if (a > b) return 1;
+    }
+    else
+    {
+      if (a > b) return -1;
+      if (a < b) return 1;
+    }
+    return 0;
+  }
+
+  virtual int between(const void *c, const void *l, const void *r)
+  {
+    return betw(element(c), element(l), element(r));
+  }
+
+  virtual int memory_between(const void *mem, const void *l, const void *r)
+  {
+    return betw(*((const NT*)mem), element(l), element(r));
+  }
+
+  virtual int compare(const void *a, const void *b)
+  {
+    return cmp(element(a), element(b));
+  }
+
+  virtual int compare_with_memory(const void *a, const void *mem)
+  {
+    return cmp(element(a), *((const NT*)mem));
+  }
+};
+
+struct RM_UINT8 : RM_UInt<uint8_t> {}; 
+struct RM_UINT16 : RM_UInt<uint16_t> {};
+struct RM_UINT32 : RM_UInt<uint32_t> {};
+struct RM_UINT64 : RM_UInt<uint64_t> {};
+
+// with millisecond precision
+struct RM_TIMESTAMP : RM_UInt<uint64_t>
+{
+  virtual void set_from_string(void *a, const char *s, const char *e)
+  {
+    _set_uint(a, conv_str_to_uint2(s, e, 3));
+  }
+};
+
+struct RM_TIMESTAMP_DESC : RM_UInt<uint64_t, false>
+{
   virtual void set_from_string(void *a, const char *s, const char *e)
   {
     _set_uint(a, conv_str_to_uint2(s, e, 3));
