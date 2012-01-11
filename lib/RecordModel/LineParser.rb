@@ -15,7 +15,7 @@ class RecordModel::LineParser
   end
 
   def initialize(db, item_class, array_item_class, line_parse_descr, array_sz=2**22,
-    report_failures=false, report_progress_every=1_000_000)
+    report_failures=false, report_progress_every=1_000_000, threaded=true)
     @db = db
     @item_class = item_class
     @item = @item_class.new
@@ -26,12 +26,19 @@ class RecordModel::LineParser
 
     @lines_read, @lines_ok = 0, 0
 
-    @inq, @outq = Queue.new, Queue.new
-    # two arrays so that the log line parser and DB insert can work in parallel
-    2.times { @outq << @array_item_class.make_array(array_sz, false) }
+    @threaded = threaded
+
+    if @threaded
+      @inq, @outq = Queue.new, Queue.new
+      # two arrays so that the log line parser and DB insert can work in parallel
+      2.times { @outq << @array_item_class.make_array(array_sz, false) }
+    else
+      @arr = @array_item_class.make_array(array_sz, false)
+    end
   end
 
   def start
+    return if not @threaded # nothing to do for !@threaded
     raise unless @outq.size == 2
     raise unless @inq.size == 0
     raise if @thread
@@ -39,12 +46,17 @@ class RecordModel::LineParser
   end
 
   def stop
-    # Remove all packets from @outq and send it back into @inq to be processed
-    # in case there are some records left.
-    (1..2).map { @outq.pop }.each {|packet| @inq << packet }
-    @inq << :end
-    @thread.join
-    @thread = nil
+    if @threaded
+      # Remove all packets from @outq and send it back into @inq to be processed
+      # in case there are some records left.
+      (1..2).map { @outq.pop }.each {|packet| @inq << packet }
+      @inq << :end
+      @thread.join
+      @thread = nil
+    else
+      store_packet(@arr)
+      @arr.reset
+    end
   end
 
   #
@@ -57,7 +69,7 @@ class RecordModel::LineParser
 
     item = @item
 
-    arr = @outq.pop
+    arr = process(nil)
     lines_read = @lines_read
     lines_ok = @lines_ok
 
@@ -65,8 +77,7 @@ class RecordModel::LineParser
       lines_read += 1
       begin
         if arr.full?
-          @inq << arr 
-	  arr = @outq.pop
+          arr = process(arr)
         end
 
         item.zero!
@@ -85,7 +96,7 @@ class RecordModel::LineParser
       end
     end # while
 
-    @outq << arr
+    final(arr)
 
     diff_lines_read = lines_read - @lines_read 
     diff_lines_ok = lines_ok - @lines_ok
@@ -93,6 +104,29 @@ class RecordModel::LineParser
     @lines_ok = lines_ok
 
     return diff_lines_read, diff_lines_ok 
+  end
+
+  def process(packet)
+    if @threaded
+      @inq << packet if packet
+      @outq.pop
+    else
+      if packet
+        store_packet(packet)
+        packet.reset
+        packet
+      else
+        @arr
+      end
+    end
+  end
+
+  def final(packet)
+    if @threaded
+      @outq << packet
+    else
+      raise unless packet == @arr
+    end
   end
 
   protected
