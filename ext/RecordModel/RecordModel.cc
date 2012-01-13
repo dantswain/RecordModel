@@ -727,6 +727,6 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstanceArray, "size", (VALUE (*)(...)) RecordModelInstanceArray_size, 0);
   rb_define_method(cRecordModelInstanceArray, "capacity", (VALUE (*)(...)) RecordModelInstanceArray_capacity, 0);
   rb_define_method(cRecordModelInstanceArray, "expandable?", (VALUE (*)(...)) RecordModelInstanceArray_expandable, 0);
-  rb_define_method(cRecordModelInstanceArray, "each", (VALUE (*)(...)) RecordModelInstanceArray_each, 1);
+  rb_define_method(cRecordModelInstanceArray, "_each", (VALUE (*)(...)) RecordModelInstanceArray_each, 1);
   rb_define_method(cRecordModelInstanceArray, "sort", (VALUE (*)(...)) RecordModelInstanceArray_sort, 0);
 }

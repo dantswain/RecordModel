@@ -182,9 +182,9 @@ class RecordModelInstance
 end
 
 class RecordModelInstanceArray
-  alias old_initialize initialize
-
   attr_reader :model_klass
+
+  alias old_initialize initialize
 
   def initialize(model_klass, n=16, expandable=true)
     @model_klass = model_klass
@@ -193,18 +193,12 @@ class RecordModelInstanceArray
 
   include Enumerable
 
-  alias old_each each
-  def each(instance=nil, &block)
-    old_each(instance || @model_klass.new, &block)
+  def each
+    instance = @model_klass.new
+    _each(instance) {|i| yield i.dup}
   end
 
   def inspect
     [self.class, to_a]
-  end
-
-  def to_a
-    a = []
-    each {|i| a << i.dup}
-    a
   end
 end
