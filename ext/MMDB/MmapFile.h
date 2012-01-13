@@ -9,8 +9,10 @@
 #include <sys/mman.h>   // mmap, munmap
 #include <algorithm>    // std::max
 #include <pthread.h>    // pthread_rwlock_t
+#include <errno.h>	// errno
+#include <string.h>	// strerror
 
-#define LOG_ERR(reason) fprintf(stderr, reason "\n")
+#define LOG_ERR(reason) fprintf(stderr, "%s\n", reason);
 #ifndef LOG_ERR
 #define LOG_ERR(reason)
 #endif
@@ -266,13 +268,15 @@ public:
     if (err != 0)
     {
       LOG_ERR("sync: msync failed");
+      LOG_ERR(strerror(errno));
       return false;
     }
 
     err = fsync(_fh);
     if (err != 0)
     {
-      LOG_ERR("sync: msync failed");
+      LOG_ERR("sync: fsync failed");
+      LOG_ERR(strerror(errno));
       return false;
     }
 
