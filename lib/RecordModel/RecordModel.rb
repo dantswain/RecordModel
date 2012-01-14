@@ -163,12 +163,15 @@ class RecordModelInstance
       when nil
         nil # skip
       when Symbol
-        idx = __info().index {|fld| fld.first == arg}
-        idx || raise
+        sym_to_fld_idx(arg)
       else
         raise ArgumentError
       end
     }
+  end
+
+  def self.sym_to_fld_idx(sym)
+    __info().index {|fld| fld.first == sym} || raise
   end
 
 end
@@ -188,6 +191,11 @@ class RecordModelInstanceArray
   def each
     instance = @model_klass.new
     _each(instance) {|i| yield i.dup}
+  end
+
+  alias old_set_bulk set_bulk
+  def set_bulk(attr, value)
+    old_set_bulk(@model_klass.sym_to_fld_idx(attr), value)
   end
 
   def inspect
