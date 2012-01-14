@@ -512,10 +512,7 @@ int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, int
       continue;
 
     RM_Type *field = self->model->get_field(FIX2UINT(e));
-    if (field == NULL)
-    {
-      rb_raise(rb_eArgError, "Wrong index");
-    }
+    assert(field);
     err = field->set_from_string(self->ptr(), tok, next);
     if (err)
     {
@@ -685,81 +682,103 @@ VALUE RecordModelInstanceArray_bulk_set(VALUE _self, VALUE field_idx, VALUE val)
   return Qnil;
 }
 
+struct Params
+{
+  RecordModelInstanceArray *self;
+  RecordModelInstance *rec;
+  VALUE field_arr;
+  size_t lines_read; 
+  char *buf;
+  size_t bufsz;
+  FILE *fh;
+  int tokpos;
+  int err;
+  bool res;
+};
+
+static
+VALUE bulk_parse_line(void *ptr)
+{
+  Params *p = (Params*)ptr;
+
+  while (true)
+  {
+    if (p->self->full())
+    {
+      p->res = true;
+      break;
+    }
+    if (!fgets(p->buf, p->bufsz, p->fh))
+    {
+      p->res = false;
+      break;
+    }
+    ++p->lines_read;
+
+    p->rec->zero();
+
+    p->tokpos = parse_line(p->rec, p->buf, p->field_arr, p->err);
+    if (p->err || p->tokpos != -2)
+    {
+      // an error appeared while parsing. call the block
+      return Qtrue;
+    }
+
+    bool ok = p->self->push(p->rec);
+    assert(ok);
+  }
+
+  return Qnil;
+}
+
 static
 VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io_int, VALUE _field_arr, VALUE _bufsz)
 {
-  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
-  RecordModelInstance *rec = get_RecordModelInstance(_rec);
+  Params p;
 
-  Check_Type(_field_arr, T_ARRAY);
-  validate_field_arr(self->model, _field_arr);
+  p.self = get_RecordModelInstanceArray(_self);
+  p.rec = get_RecordModelInstance(_rec);
+  p.field_arr = _field_arr;
+  Check_Type(p.field_arr, T_ARRAY);
+  validate_field_arr(p.self->model, p.field_arr);
 
-  size_t bufsz = NUM2INT(_bufsz); 
+  p.lines_read = 0;
+  p.buf = NULL;
+  p.bufsz = NUM2INT(_bufsz); 
+  p.fh = NULL;
+  p.res = false;
 
-  FILE *fh = NULL;
-  char *buf = NULL;
-  const char *errmsg = "unknown error";
-  bool res = false;
-  int err;
-  int tokpos;
-  size_t lines_read; 
-
-  fh = fdopen(dup(NUM2INT(io_int)), "r");
-  if (!fh)
+  p.fh = fdopen(dup(NUM2INT(io_int)), "r");
+  if (!p.fh)
   {
-    errmsg = "failed to open file";
-    goto err;
+    rb_raise(rb_eRuntimeError, "Failed to open file");
   }
 
-  buf = (char*)malloc(bufsz);
-  if (!buf)
+  p.buf = (char*)malloc(p.bufsz);
+  if (!p.buf)
   {
-    errmsg = "not enough memory";
-    goto err;
+    fclose(p.fh);
+    rb_raise(rb_eRuntimeError, "Not enough memory");
   }
 
-  for (lines_read=0; true; ++lines_read)
+  while (true)
   {
-    if (self->full())
-    {
-      res = true;
-      break;
-    }
-    if (!fgets(buf, bufsz, fh))
-    {
-      res = false;
-      break;
-    }
+    VALUE r = rb_thread_blocking_region(bulk_parse_line, &p, NULL, NULL);
+    if (NIL_P(r)) break;
 
-    rec->zero();
-
-    tokpos = parse_line(rec, buf, _field_arr, err);
-    if (err || tokpos != -2)
+    // an error appeared while parsing. call the block
+    if (RTEST(rb_yield_values(3, INT2NUM(p.tokpos), INT2NUM(p.err), _rec)))
     {
-      // an error appeared while parsing. call the block
-      if (!RTEST(rb_yield_values(3, INT2NUM(tokpos), INT2NUM(err), _rec)))
-      {
-        // skip this entry!
-        continue;
-      }
-    }
-
-    if (!self->push(rec))
-    {
-      errmsg = "Failed to push";
-      goto err;
+      // don't skip this entry
+      bool ok = p.self->push(p.rec);
+      assert(ok);
     }
   }
 
-  fclose(fh);
-  free(buf);
+  fclose(p.fh);
+  free(p.buf);
 
-  return rb_ary_new3(2, res ? Qtrue : Qfalse, ULONG2NUM(lines_read));
-
-err:
-  if (fh) fclose(fh);
-  if (buf) free(buf);
-  rb_raise(rb_eRuntimeError, "%s", errmsg);
+  return rb_ary_new3(2, p.res ? Qtrue : Qfalse, ULONG2NUM(p.lines_read));
 }
 
 static
