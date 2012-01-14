@@ -445,7 +445,12 @@ VALUE RecordModelInstance_set_from_string(VALUE _self, VALUE field_idx, VALUE st
     rb_raise(rb_eArgError, "Wrong index");
   }
 
-  field->set_from_string(self->ptr(), RSTRING_PTR(str), RSTRING_END(str));
+  int err = field->set_from_string(self->ptr(), RSTRING_PTR(str), RSTRING_END(str));
+  if (err)
+  {
+    rb_raise(rb_eRuntimeError, "set_from_string failed with %d\n", err);
+  }
+  
   return _self;
 }
 
@@ -470,13 +475,33 @@ const char *parse_token(const char **src)
 }
 
 static
-int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr)
+void validate_field_arr(RecordModel *model, VALUE _field_arr)
+{
+  for (int i=0; i < RARRAY_LEN(_field_arr); ++i)
+  {
+    VALUE e = RARRAY_PTR(_field_arr)[i];
+
+    if (NIL_P(e))
+      continue;
+
+    RM_Type *field = model->get_field(FIX2UINT(e));
+    if (field == NULL)
+    {
+      rb_raise(rb_eArgError, "Wrong index");
+    }
+  }
+}
+
+static
+int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, int &err)
 {
   const char *next = str;
   const char *tok = NULL;
+  err = RM_ERR_OK;
 
   for (int i=0; i < RARRAY_LEN(_field_arr); ++i)
   {
+    err = RM_ERR_OK;
     VALUE e = RARRAY_PTR(_field_arr)[i];
 
     tok = parse_token(&next);
@@ -491,7 +516,11 @@ int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr)
     {
       rb_raise(rb_eArgError, "Wrong index");
     }
-    field->set_from_string(self->ptr(), tok, next);
+    err = field->set_from_string(self->ptr(), tok, next);
+    if (err)
+    {
+      return i;
+    }
   }
 
   tok = parse_token(&next);
@@ -513,11 +542,18 @@ VALUE RecordModelInstance_parse_line(VALUE _self, VALUE _line, VALUE _field_arr)
 
   Check_Type(_line, T_STRING);
   Check_Type(_field_arr, T_ARRAY);
+  validate_field_arr(self->model, _field_arr);
 
-  int err = parse_line(self, RSTRING_PTR(_line), _field_arr);
+  int err = 0;
+  int tokpos = parse_line(self, RSTRING_PTR(_line), _field_arr, err);
 
-  if (err == -2) return Qnil;
-  return INT2NUM(err);
+  if (err)
+  {
+    rb_raise(rb_eRuntimeError, "set_from_string failed with %d at token %d\n", err, tokpos);
+  }
+
+  if (tokpos == -2) return Qnil;
+  return INT2NUM(tokpos);
 }
 
 
@@ -656,6 +692,7 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
   RecordModelInstance *rec = get_RecordModelInstance(_rec);
 
   Check_Type(_field_arr, T_ARRAY);
+  validate_field_arr(self->model, _field_arr);
 
   size_t bufsz = NUM2INT(_bufsz); 
 
@@ -664,6 +701,7 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
   const char *errmsg = "unknown error";
   bool res = false;
   int err;
+  int tokpos;
   size_t lines_read; 
 
   fh = fdopen(dup(NUM2INT(io_int)), "r");
@@ -694,11 +732,12 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
     }
 
     rec->zero();
-    err = parse_line(rec, buf, _field_arr);
-    if (err != -2)
+
+    tokpos = parse_line(rec, buf, _field_arr, err);
+    if (err || tokpos != -2)
     {
       // an error appeared while parsing. call the block
-      if (!RTEST(rb_yield_values(2, INT2NUM(err), _rec)))
+      if (!RTEST(rb_yield_values(3, INT2NUM(tokpos), INT2NUM(err), _rec)))
       {
         // skip this entry!
         continue;

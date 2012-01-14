@@ -9,6 +9,11 @@
 #include <stdlib.h>  // atof
 #include "ruby.h"    // Ruby
 
+#define RM_ERR_OK 0
+#define RM_ERR_INT_RANGE 1
+#define RM_ERR_HEX_INV_SIZE 10
+#define RM_ERR_HEX_INV_DIGIT 11
+
 struct RM_Type
 {
   uint16_t _offset;
@@ -18,8 +23,8 @@ struct RM_Type
   virtual uint8_t size() = 0;
 
   virtual VALUE to_ruby(const void *a) = 0;
-  virtual void set_from_ruby(void *a, VALUE val) = 0;
-  virtual void set_from_string(void *a, const char *s, const char *e) = 0;
+  virtual int set_from_ruby(void *a, VALUE val) = 0;
+  virtual int set_from_string(void *a, const char *s, const char *e) = 0;
   virtual void set_from_memory(void *a, const void *ptr) = 0;
 
   // ptr must point to a valid memory frame of size()
@@ -55,18 +60,19 @@ struct RM_UInt : RM_Type
     return ULONG2NUM(element(a));
   }
 
-  void _set_uint(void *a, uint64_t v)
+  int _set_uint(void *a, uint64_t v)
   {
     if (!(v >= std::numeric_limits<NT>::min() &&
           v <= std::numeric_limits<NT>::max()))
-      rb_raise(rb_eArgError, "Integer out of range: %ld", v);
+      return RM_ERR_INT_RANGE;
 
     element(a) = (NT)v;
+    return RM_ERR_OK;
   }
 
-  virtual void set_from_ruby(void *a, VALUE val)
+  virtual int set_from_ruby(void *a, VALUE val)
   {
-    _set_uint(a, (uint64_t)NUM2ULONG(val));
+    return _set_uint(a, (uint64_t)NUM2ULONG(val));
   }
 
   // XXX: handle conversion failures
@@ -132,9 +138,9 @@ struct RM_UInt : RM_Type
     return v;
   }
 
-  virtual void set_from_string(void *a, const char *s, const char *e)
+  virtual int set_from_string(void *a, const char *s, const char *e)
   {
-    _set_uint(a, conv_str_to_uint(s, e));
+    return _set_uint(a, conv_str_to_uint(s, e));
   }
 
   virtual void set_from_memory(void *a, const void *ptr)
@@ -232,17 +238,17 @@ struct RM_UINT64 : RM_UInt<uint64_t> {};
 // with millisecond precision
 struct RM_TIMESTAMP : RM_UInt<uint64_t>
 {
-  virtual void set_from_string(void *a, const char *s, const char *e)
+  virtual int set_from_string(void *a, const char *s, const char *e)
   {
-    _set_uint(a, conv_str_to_uint2(s, e, 3));
+    return _set_uint(a, conv_str_to_uint2(s, e, 3));
   }
 };
 
 struct RM_TIMESTAMP_DESC : RM_UInt<uint64_t, false>
 {
-  virtual void set_from_string(void *a, const char *s, const char *e)
+  virtual int set_from_string(void *a, const char *s, const char *e)
   {
-    _set_uint(a, conv_str_to_uint2(s, e, 3));
+    return _set_uint(a, conv_str_to_uint2(s, e, 3));
   }
 };
 
@@ -262,9 +268,10 @@ struct RM_DOUBLE : RM_Type
     return rb_float_new(element(a));
   }
 
-  virtual void set_from_ruby(void *a, VALUE val)
+  virtual int set_from_ruby(void *a, VALUE val)
   {
     element(a) = (NT)NUM2DBL(val);
+    return RM_ERR_OK;
   }
 
   // XXX: remove char* cast and string modification!
@@ -277,9 +284,10 @@ struct RM_DOUBLE : RM_Type
     return v;
   }
 
-  virtual void set_from_string(void *a, const char *s, const char *e)
+  virtual int set_from_string(void *a, const char *s, const char *e)
   {
     element(a) = conv_str_to_double(s, e);
+    return RM_ERR_OK;
   }
 
   virtual void set_from_memory(void *a, const void *ptr)
@@ -391,15 +399,14 @@ struct RM_HEXSTR : RM_Type
     return -1;
   }
 
-  void parse_hexstring(uint8_t *v, int strlen, const char *str)
+  int parse_hexstring(uint8_t *v, int strlen, const char *str)
   {
     const int max_sz = 2*size();
     const int i_off = max_sz - strlen;
 
     if (strlen > max_sz)
     {
-      rb_raise(rb_eArgError, "Invalid string size. Was: %d, Max: %d",
-               strlen, max_sz);
+      return RM_ERR_HEX_INV_SIZE;
     }
 
     bzero(v, size());
@@ -408,21 +415,25 @@ struct RM_HEXSTR : RM_Type
     {
       int digit = from_hex_digit(str[i]);
       if (digit < 0)
-        rb_raise(rb_eArgError, "Invalid hex digit at %s", &str[i]);
+      {
+        // invalid hex digit at str[i]
+        return RM_ERR_HEX_INV_DIGIT;
+      }
 
       v[(i+i_off)/2] = (v[(i+i_off)/2] << 4) | (uint8_t)digit;
     }
+    return RM_ERR_OK;
   }
 
-  virtual void set_from_ruby(void *a, VALUE val)
+  virtual int set_from_ruby(void *a, VALUE val)
   {
     Check_Type(val, T_STRING);
-    parse_hexstring(element_ptr(a), RSTRING_LEN(val), RSTRING_PTR(val));
+    return parse_hexstring(element_ptr(a), RSTRING_LEN(val), RSTRING_PTR(val));
   }
 
-  virtual void set_from_string(void *a, const char *s, const char *e)
+  virtual int set_from_string(void *a, const char *s, const char *e)
   {
-    parse_hexstring(element_ptr(a), (int)(e-s), s);
+    return parse_hexstring(element_ptr(a), (int)(e-s), s);
   }
 
   virtual void set_from_memory(void *a, const void *ptr)
