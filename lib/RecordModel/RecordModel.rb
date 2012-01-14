@@ -193,9 +193,9 @@ class RecordModelInstanceArray
     _each(instance) {|i| yield i.dup}
   end
 
-  alias old_set_bulk set_bulk
-  def set_bulk(attr, value)
-    old_set_bulk(@model_klass.sym_to_fld_idx(attr), value)
+  alias old_bulk_set bulk_set
+  def bulk_set(attr, value)
+    old_bulk_set(@model_klass.sym_to_fld_idx(attr), value)
   end
 
   def inspect
