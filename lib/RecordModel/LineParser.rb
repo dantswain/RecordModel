@@ -106,6 +106,31 @@ class RecordModel::LineParser
     return diff_lines_read, diff_lines_ok 
   end
 
+  def import_fast(io, max_line_len=4096, &block)
+    item = @item
+
+    arr = process(nil)
+
+    lines_ok = 0
+    lines_read = 0
+
+    loop do
+      raise unless arr.empty?
+      more, lines = arr.bulk_parse_line(item, io.to_i, @line_parse_descr, max_line_len, &block)
+      lines_read += lines
+      lines_ok += arr.size
+      break unless more
+
+      arr = process(arr)
+    end
+    final(arr)
+
+    @lines_read += lines_read
+    @lines_ok += lines_ok
+
+    return lines_read, lines_ok 
+  end
+
   def process(packet)
     if @threaded
       @inq << packet if packet

@@ -3,6 +3,8 @@
 #include <strings.h> // bzero
 #include <ctype.h> // isspace etc.
 #include <algorithm> // std::max
+#include <unistd.h> // dup()
+#include <stdio.h> // feof, fgets, fdopen, fclose
 #include "ruby.h"
 
 /*
@@ -467,20 +469,10 @@ const char *parse_token(const char **src)
   return beg;
 }
 
-/*
- * Return Qnil on success, or an Integer.
- * If an Integer is returned, it is the index into _field_arr which could not parsed due to EOL (end of line).
- * Returns -1 if every item could be parsed but there are still some characters left in the string.
- */
 static
-VALUE RecordModelInstance_parse_line(VALUE _self, VALUE _line, VALUE _field_arr)
+int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr)
 {
-  RecordModelInstance *self = get_RecordModelInstance(_self);
-
-  Check_Type(_line, T_STRING);
-  Check_Type(_field_arr, T_ARRAY);
-
-  const char *next = RSTRING_PTR(_line); 
+  const char *next = str;
   const char *tok = NULL;
 
   for (int i=0; i < RARRAY_LEN(_field_arr); ++i)
@@ -489,7 +481,7 @@ VALUE RecordModelInstance_parse_line(VALUE _self, VALUE _line, VALUE _field_arr)
 
     tok = parse_token(&next);
     if (tok == next)
-      return INT2NUM(i); // premature end
+      return i; // premature end
 
     if (NIL_P(e))
       continue;
@@ -504,10 +496,31 @@ VALUE RecordModelInstance_parse_line(VALUE _self, VALUE _line, VALUE _field_arr)
 
   tok = parse_token(&next);
   if (tok == next)
-    return Qnil;
+    return -2; // means, OK
   else
-    return INT2NUM(-1); // means, has additional items
+    return -1; // means, has additional items
 }
+
+/*
+ * Return Qnil on success, or an Integer.
+ * If an Integer is returned, it is the index into _field_arr which could not parsed due to EOL (end of line).
+ * Returns -1 if every item could be parsed but there are still some characters left in the string.
+ */
+static
+VALUE RecordModelInstance_parse_line(VALUE _self, VALUE _line, VALUE _field_arr)
+{
+  RecordModelInstance *self = get_RecordModelInstance(_self);
+
+  Check_Type(_line, T_STRING);
+  Check_Type(_field_arr, T_ARRAY);
+
+  int err = parse_line(self, RSTRING_PTR(_line), _field_arr);
+
+  if (err == -2) return Qnil;
+  return INT2NUM(err);
+}
+
+
 
 static VALUE RecordModel_to_class(VALUE self)
 {
@@ -618,6 +631,99 @@ static VALUE RecordModelInstanceArray_is_full(VALUE _self)
 }
 
 static
+VALUE RecordModelInstanceArray_bulk_set(VALUE _self, VALUE field_idx, VALUE val)
+{
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+  RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
+
+  if (field == NULL)
+  {
+    rb_raise(rb_eArgError, "Wrong index");
+  }
+
+  for (size_t i = 0; i < self->entries(); ++i)
+  {
+    field->set_from_ruby(self->ptr_at(i), val);
+  }
+
+  return Qnil;
+}
+
+static
+VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io_int, VALUE _field_arr, VALUE _bufsz)
+{
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+  RecordModelInstance *rec = get_RecordModelInstance(_rec);
+
+  Check_Type(_field_arr, T_ARRAY);
+
+  size_t bufsz = NUM2INT(_bufsz); 
+
+  FILE *fh = NULL;
+  char *buf = NULL;
+  const char *errmsg = "unknown error";
+  bool res = false;
+  int err;
+  size_t lines_read; 
+
+  fh = fdopen(dup(NUM2INT(io_int)), "r");
+  if (!fh)
+  {
+    errmsg = "failed to open file";
+    goto err;
+  }
+
+  buf = (char*)malloc(bufsz);
+  if (!buf)
+  {
+    errmsg = "not enough memory";
+    goto err;
+  }
+
+  for (lines_read=0; true; ++lines_read)
+  {
+    if (self->full())
+    {
+      res = true;
+      break;
+    }
+    if (!fgets(buf, bufsz, fh))
+    {
+      res = false;
+      break;
+    }
+
+    rec->zero();
+    err = parse_line(rec, buf, _field_arr);
+    if (err != -2)
+    {
+      // an error appeared while parsing. call the block
+      if (!RTEST(rb_yield_values(2, INT2NUM(err), _rec)))
+      {
+        // skip this entry!
+        continue;
+      }
+    }
+
+    if (!self->push(rec))
+    {
+      errmsg = "Failed to push";
+      goto err;
+    }
+  }
+
+  fclose(fh);
+  free(buf);
+
+  return rb_ary_new3(2, res ? Qtrue : Qfalse, ULONG2NUM(lines_read));
+
+err:
+  if (fh) fclose(fh);
+  if (buf) free(buf);
+  rb_raise(rb_eRuntimeError, "%s", errmsg);
+}
+
+static
 VALUE RecordModelInstanceArray_push(VALUE _self, VALUE _rec)
 {
   RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
@@ -722,6 +828,8 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstanceArray, "initialize", (VALUE (*)(...)) RecordModelInstanceArray_initialize, 3);
   rb_define_method(cRecordModelInstanceArray, "empty?", (VALUE (*)(...)) RecordModelInstanceArray_is_empty, 0);
   rb_define_method(cRecordModelInstanceArray, "full?", (VALUE (*)(...)) RecordModelInstanceArray_is_full, 0);
+  rb_define_method(cRecordModelInstanceArray, "bulk_set", (VALUE (*)(...)) RecordModelInstanceArray_bulk_set, 2);
+  rb_define_method(cRecordModelInstanceArray, "bulk_parse_line", (VALUE (*)(...)) RecordModelInstanceArray_bulk_parse_line, 4);
   rb_define_method(cRecordModelInstanceArray, "<<", (VALUE (*)(...)) RecordModelInstanceArray_push, 1);
   rb_define_method(cRecordModelInstanceArray, "reset", (VALUE (*)(...)) RecordModelInstanceArray_reset, 0);
   rb_define_method(cRecordModelInstanceArray, "size", (VALUE (*)(...)) RecordModelInstanceArray_size, 0);

@@ -155,7 +155,7 @@ class RecordModelInstance
   end
 
   #
-  # Example usage: def_parser_descr(:uid, :campaign_id, nil, [:timestamp, :fixint, 3])
+  # Example usage: def_parser_descr(:uid, :campaign_id, nil, :timestamp)
   #
   def self.def_parse_descr(*args)
     args.map {|arg|
@@ -165,14 +165,6 @@ class RecordModelInstance
       when Symbol
         idx = __info().index {|fld| fld.first == arg}
         idx || raise
-      when Array
-        id, type, extra = *arg
-        idx = __info().index {|fld| fld.first == id} || raise
-        if type == :fixint
-          (((extra << 8) | 0x01) << 32) | idx
-        else
-          raise ArgumentError
-        end
       else
         raise ArgumentError
       end
