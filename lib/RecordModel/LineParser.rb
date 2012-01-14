@@ -107,18 +107,16 @@ class RecordModel::LineParser
   end
 
   def import_fast(io, max_line_len=4096, &block)
-    item = @item
-
     arr = process(nil)
 
     lines_ok = 0
     lines_read = 0
 
     loop do
-      raise unless arr.empty?
-      more, lines = arr.bulk_parse_line(item, io.to_i, @line_parse_descr, max_line_len, &block)
+      before = arr.size
+      more, lines = arr.bulk_parse_line(@item, io.to_i, @line_parse_descr, max_line_len, &block)
       lines_read += lines
-      lines_ok += arr.size
+      lines_ok += (arr.size - before)
       break unless more
 
       arr = process(arr)
