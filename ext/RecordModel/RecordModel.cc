@@ -493,6 +493,40 @@ void validate_field_arr(RecordModel *model, VALUE _field_arr)
 }
 
 static
+int parse_line2(RecordModelInstance *self, const char *str, const std::vector<int> &field_arr, int &err)
+{
+  const char *next = str;
+  const char *tok = NULL;
+  err = RM_ERR_OK;
+
+  for (size_t i=0; i < field_arr.size(); ++i)
+  {
+    err = RM_ERR_OK;
+
+    tok = parse_token(&next);
+    if (tok == next)
+      return i; // premature end
+
+    if (field_arr[i] < 0)
+      continue;
+
+    RM_Type *field = self->model->get_field(field_arr[i]);
+    assert(field);
+    err = field->set_from_string(self->ptr(), tok, next);
+    if (err)
+    {
+      return i;
+    }
+  }
+
+  tok = parse_token(&next);
+  if (tok == next)
+    return -2; // means, OK
+  else
+    return -1; // means, has additional items
+}
+
+static
 int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, int &err)
 {
   const char *next = str;
@@ -686,15 +720,28 @@ struct Params
 {
   RecordModelInstanceArray *self;
   RecordModelInstance *rec;
-  VALUE field_arr;
+  std::vector<int> field_arr;
+  VALUE _rec;
   size_t lines_read; 
   char *buf;
   size_t bufsz;
   FILE *fh;
   int tokpos;
   int err;
-  bool res;
 };
+
+static
+void *bulk_parse_line_yield(void *ptr)
+{
+  Params *p = (Params*)ptr;
+
+  if (!RTEST(rb_yield_values(3, INT2NUM(p->tokpos), INT2NUM(p->err), p->_rec)))
+    return NULL;
+  return ptr;
+}
+
+extern "C" void *
+rb_thread_call_with_gvl(void *(*func)(void *), void *data1);
 
 static
 VALUE bulk_parse_line(void *ptr)
@@ -705,30 +752,33 @@ VALUE bulk_parse_line(void *ptr)
   {
     if (p->self->full())
     {
-      p->res = true;
-      break;
+      return Qtrue;
     }
     if (!fgets(p->buf, p->bufsz, p->fh))
     {
-      p->res = false;
-      break;
+      return Qfalse;
     }
     ++p->lines_read;
 
     p->rec->zero();
 
-    p->tokpos = parse_line(p->rec, p->buf, p->field_arr, p->err);
+    p->tokpos = parse_line2(p->rec, p->buf, p->field_arr, p->err);
     if (p->err || p->tokpos != -2)
     {
       // an error appeared while parsing. call the block
-      return Qtrue;
+      void *res = rb_thread_call_with_gvl(bulk_parse_line_yield, p);
+      if (res == NULL)
+      {
+	// skip item
+        continue;
+      }
     }
 
     bool ok = p->self->push(p->rec);
     assert(ok);
   }
 
-  return Qnil;
+  assert(false);
 }
 
 static
@@ -736,17 +786,26 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
 {
   Params p;
 
+  p._rec = _rec;
   p.self = get_RecordModelInstanceArray(_self);
-  p.rec = get_RecordModelInstance(_rec);
-  p.field_arr = _field_arr;
-  Check_Type(p.field_arr, T_ARRAY);
-  validate_field_arr(p.self->model, p.field_arr);
+  p.rec = get_RecordModelInstance(p._rec);
+  Check_Type(_field_arr, T_ARRAY);
+  validate_field_arr(p.self->model, _field_arr);
+
+  for (int i=0; i < RARRAY_LEN(_field_arr); ++i)
+  {
+    VALUE e = RARRAY_PTR(_field_arr)[i];
+
+    if (NIL_P(e))
+      continue;
+
+    p.field_arr.push_back((int)FIX2UINT(e));
+  }
 
   p.lines_read = 0;
   p.buf = NULL;
   p.bufsz = NUM2INT(_bufsz); 
   p.fh = NULL;
-  p.res = false;
 
   p.fh = fdopen(dup(NUM2INT(io_int)), "r");
   if (!p.fh)
@@ -761,24 +820,12 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
     rb_raise(rb_eRuntimeError, "Not enough memory");
   }
 
-  while (true)
-  {
-    VALUE r = rb_thread_blocking_region(bulk_parse_line, &p, NULL, NULL);
-    if (NIL_P(r)) break;
-
-    // an error appeared while parsing. call the block
-    if (RTEST(rb_yield_values(3, INT2NUM(p.tokpos), INT2NUM(p.err), _rec)))
-    {
-      // don't skip this entry
-      bool ok = p.self->push(p.rec);
-      assert(ok);
-    }
-  }
+  VALUE res = rb_thread_blocking_region(bulk_parse_line, &p, NULL, NULL);
 
   fclose(p.fh);
   free(p.buf);
 
-  return rb_ary_new3(2, p.res ? Qtrue : Qfalse, ULONG2NUM(p.lines_read));
+  return rb_ary_new3(2, res, ULONG2NUM(p.lines_read));
 }
 
 static
