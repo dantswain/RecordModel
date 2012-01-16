@@ -117,7 +117,7 @@ class RecordModel::LineParser
   protected
 
   def convert_item(error, item)
-    raise if error and error != -1
+    raise if error < @line_parse_descr.size
     return item
   end
 
@@ -144,12 +144,14 @@ end
 
 class RecordModel::FastLineParser
 
-  def initialize(db, item_class, line_parse_descr, array_sz=2**22, reject_token_parse_error=true)
+  def initialize(db, item_class, line_parse_descr, array_sz=2**22, reject_token_parse_error=true, reject_invalid_num_tokens=true, valid_token_range=nil)
     @db = db
     @item_class = item_class
     @item = @item_class.new
     @line_parse_descr = line_parse_descr
     @reject_token_parse_error = reject_token_parse_error
+    @reject_invalid_num_tokens = reject_invalid_num_tokens
+    @valid_token_range = valid_token_range || (line_parse_descr .. -1) 
 
     @work_q = Queue.new
     @free_q = Queue.new
@@ -197,7 +199,8 @@ class RecordModel::FastLineParser
 
     loop do
       before = @current_arr.size
-      more, lines = @current_arr.bulk_parse_line(@item, io.to_i, @line_parse_descr, max_line_len, @reject_token_parse_error, &block)
+      more, lines = @current_arr.bulk_parse_line(@item, io.to_i, @line_parse_descr, max_line_len, 
+        @reject_token_parse_error, @reject_invalid_num_tokens, @valid_token_range.first, @valid_token_range.last, &block)
       lines_read += lines
       lines_ok += (@current_arr.size - before)
       break unless more

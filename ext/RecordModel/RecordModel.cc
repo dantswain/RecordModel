@@ -587,15 +587,14 @@ VALUE RecordModelInstance_parse_line(VALUE _self, VALUE _line, VALUE _field_arr)
   validate_field_arr(self->model, _field_arr);
 
   int err = 0;
-  int tokpos = parse_line(self, RSTRING_PTR(_line), _field_arr, err);
+  int num_tokens = parse_line(self, RSTRING_PTR(_line), _field_arr, err);
 
   if (err)
   {
-    rb_raise(rb_eRuntimeError, "set_from_string failed with %d at token %d\n", err, tokpos);
+    rb_raise(rb_eRuntimeError, "set_from_string failed with %d at token %d\n", err, num_tokens);
   }
 
-  if (tokpos == -2) return Qnil;
-  return INT2NUM(tokpos);
+  return INT2NUM(num_tokens);
 }
 
 
@@ -796,7 +795,7 @@ VALUE bulk_parse_line(void *ptr)
     {
       // no parse error occured, but we still might have to little or
       // to many tokens.
-      if (p->num_tokens < p->min_num_tokens || p->num_tokens > p->max_num_tokens)
+      if (p->num_tokens < p->min_num_tokens || (p->max_num_tokens > 0 && p->num_tokens > p->max_num_tokens))
       {
         // we either want to generally reject items with wrong number of tokens,
         // otherwise we call the block to determine what to do.
