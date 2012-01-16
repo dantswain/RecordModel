@@ -492,6 +492,14 @@ void validate_field_arr(RecordModel *model, VALUE _field_arr)
   }
 }
 
+/*
+ * Returns the number of successfully parsed tokens.
+ *
+ * e.g. if parse_line2([:field_a]) return 0, it means that it could not parse
+ * the first token successfully. If it returns 1 (== field_arr.size()), then it
+ * could exactly parse all tokens. If it returns 2 (== field_arr.size+1), it
+ * could parse all tokens successfully, but there is more input available.
+ */
 static
 int parse_line2(RecordModelInstance *self, const char *str, const std::vector<int> &field_arr, int &err)
 {
@@ -499,7 +507,8 @@ int parse_line2(RecordModelInstance *self, const char *str, const std::vector<in
   const char *tok = NULL;
   err = RM_ERR_OK;
 
-  for (size_t i=0; i < field_arr.size(); ++i)
+  size_t i;
+  for (i=0; i < field_arr.size(); ++i)
   {
     err = RM_ERR_OK;
 
@@ -521,9 +530,9 @@ int parse_line2(RecordModelInstance *self, const char *str, const std::vector<in
 
   tok = parse_token(&next);
   if (tok == next)
-    return -2; // means, OK
+    return i; // means, OK
   else
-    return -1; // means, has additional items
+    return i+1; // means, has additional items
 }
 
 static
@@ -533,7 +542,8 @@ int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, int
   const char *tok = NULL;
   err = RM_ERR_OK;
 
-  for (int i=0; i < RARRAY_LEN(_field_arr); ++i)
+  size_t i;
+  for (i=0; i < RARRAY_LEN(_field_arr); ++i)
   {
     err = RM_ERR_OK;
     VALUE e = RARRAY_PTR(_field_arr)[i];
@@ -556,15 +566,16 @@ int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, int
 
   tok = parse_token(&next);
   if (tok == next)
-    return -2; // means, OK
+    return i; // means, OK
   else
-    return -1; // means, has additional items
+    return i+1; // means, has additional items
 }
 
 /*
  * Return Qnil on success, or an Integer.
- * If an Integer is returned, it is the index into _field_arr which could not parsed due to EOL (end of line).
- * Returns -1 if every item could be parsed but there are still some characters left in the string.
+ * If an Integer is returned, it is the number of tokens that could be parsed successfully
+ * (or the index into _field_arr which could not parsed due to end of line).
+ * See parse_line2. 
  */
 static
 VALUE RecordModelInstance_parse_line(VALUE _self, VALUE _line, VALUE _field_arr)
@@ -726,8 +737,14 @@ struct Params
   char *buf;
   size_t bufsz;
   FILE *fh;
-  int tokpos;
-  int err;
+
+  int parse_error;
+  int num_tokens;
+
+  bool reject_token_parse_error;
+  bool reject_invalid_num_tokens;
+  int min_num_tokens;
+  int max_num_tokens;
 };
 
 static
@@ -735,7 +752,7 @@ void *bulk_parse_line_yield(void *ptr)
 {
   Params *p = (Params*)ptr;
 
-  if (!RTEST(rb_yield_values(3, INT2NUM(p->tokpos), INT2NUM(p->err), p->_rec)))
+  if (!RTEST(rb_yield_values(3, INT2NUM(p->num_tokens), INT2NUM(p->parse_error), p->_rec)))
     return NULL;
   return ptr;
 }
@@ -762,15 +779,31 @@ VALUE bulk_parse_line(void *ptr)
 
     p->rec->zero();
 
-    p->tokpos = parse_line2(p->rec, p->buf, p->field_arr, p->err);
-    if (p->err || p->tokpos != -2)
+    p->num_tokens = parse_line2(p->rec, p->buf, p->field_arr, p->parse_error);
+    if (p->parse_error)
     {
-      // an error appeared while parsing. call the block
-      void *res = rb_thread_call_with_gvl(bulk_parse_line_yield, p);
-      if (res == NULL)
+      // We either reject item for which a parse error occured, or we have 
+      // to call the block. If the block returns false (or nil), we also
+      // reject it.
+      if (p->reject_token_parse_error ||
+          rb_thread_call_with_gvl(bulk_parse_line_yield, p) == NULL)
       {
-	// skip item
+        // skip item
         continue;
+      }
+    }
+    else
+    {
+      // no parse error occured, but we still might have to little or
+      // to many tokens.
+      if (p->num_tokens < p->min_num_tokens || p->num_tokens > p->max_num_tokens)
+      {
+        // we either want to generally reject items with wrong number of tokens,
+        // otherwise we call the block to determine what to do.
+        if (p->reject_invalid_num_tokens || rb_thread_call_with_gvl(bulk_parse_line_yield, p) == NULL)
+        {
+          continue;
+        }
       }
     }
 
@@ -782,7 +815,8 @@ VALUE bulk_parse_line(void *ptr)
 }
 
 static
-VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io_int, VALUE _field_arr, VALUE _bufsz)
+VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io_int, VALUE _field_arr, VALUE _bufsz,
+  VALUE _reject_token_parse_error, VALUE _reject_invalid_num_tokens, VALUE _min_num_tokens, VALUE _max_num_tokens)
 {
   Params p;
 
@@ -806,6 +840,10 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
   p.buf = NULL;
   p.bufsz = NUM2INT(_bufsz); 
   p.fh = NULL;
+  p.reject_token_parse_error = RTEST(_reject_token_parse_error);
+  p.reject_invalid_num_tokens = RTEST(_reject_invalid_num_tokens);
+  p.min_num_tokens = NUM2INT(_min_num_tokens);
+  p.max_num_tokens = NUM2INT(_max_num_tokens);
 
   p.fh = fdopen(dup(NUM2INT(io_int)), "r");
   if (!p.fh)
@@ -934,7 +972,7 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstanceArray, "empty?", (VALUE (*)(...)) RecordModelInstanceArray_is_empty, 0);
   rb_define_method(cRecordModelInstanceArray, "full?", (VALUE (*)(...)) RecordModelInstanceArray_is_full, 0);
   rb_define_method(cRecordModelInstanceArray, "bulk_set", (VALUE (*)(...)) RecordModelInstanceArray_bulk_set, 2);
-  rb_define_method(cRecordModelInstanceArray, "bulk_parse_line", (VALUE (*)(...)) RecordModelInstanceArray_bulk_parse_line, 4);
+  rb_define_method(cRecordModelInstanceArray, "bulk_parse_line", (VALUE (*)(...)) RecordModelInstanceArray_bulk_parse_line, 8);
   rb_define_method(cRecordModelInstanceArray, "<<", (VALUE (*)(...)) RecordModelInstanceArray_push, 1);
   rb_define_method(cRecordModelInstanceArray, "reset", (VALUE (*)(...)) RecordModelInstanceArray_reset, 0);
   rb_define_method(cRecordModelInstanceArray, "size", (VALUE (*)(...)) RecordModelInstanceArray_size, 0);
