@@ -13,7 +13,7 @@ class TestRecordModel < Test::Unit::TestCase
       r.key :c, :uint32
       r.key :d, :uint64
       r.val :e, :double
-      r.val :f, :hexstr, 16
+      r.val :f, :hexstr, :size => 16
       r.key :g, :timestamp
       r.key :h, :timestamp_desc
     end
@@ -21,6 +21,17 @@ class TestRecordModel < Test::Unit::TestCase
 
   def test_model_size
     assert_equal(55, @klass.model.size)
+  end
+
+  def test_default_values
+    k0 = RecordModel.define do |r|
+      r.key :a, :uint8
+    end
+    k1 = RecordModel.define do |r|
+      r.key :a, :uint8, :default => 99
+    end
+    assert_equal 0, k0.new.a
+    assert_equal 99, k1.new.a
   end
 
   def test_timestamp_desc
@@ -78,15 +89,15 @@ class TestRecordModel < Test::Unit::TestCase
     from_string(rec, 0, 0, "0")
     from_string(rec, 0, 255, "255")
     from_string(rec, 0, 128, "128")
-    from_string(rec, 0, ArgumentError, "256")
+    from_string(rec, 0, RuntimeError, "256")
 
     from_string(rec, 1, 0, "0")
     from_string(rec, 1, 2**16-1, (2**16-1).to_s)
-    from_string(rec, 1, ArgumentError, (2**16).to_s)
+    from_string(rec, 1, RuntimeError, (2**16).to_s)
 
     from_string(rec, 2, 0, "0")
     from_string(rec, 2, 2**32-1, (2**32-1).to_s)
-    from_string(rec, 2, ArgumentError, (2**32).to_s)
+    from_string(rec, 2, RuntimeError, (2**32).to_s)
 
     from_string(rec, 3, 0, "0")
     from_string(rec, 3, 2**64-1, (2**64-1).to_s)

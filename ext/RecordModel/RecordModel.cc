@@ -108,11 +108,11 @@ VALUE RecordModel_initialize(VALUE self, VALUE fields)
   for (size_t i = 0; i < num_fields; ++i)
   {
     // Each entry has the following form:
-    // [:id, :type, is_key, offset, length] 
+    // [:id, :type, is_key, offset, length (,optinal_default_value)]
 
     VALUE e = RARRAY_PTR(fields)[i];
     assert(TYPE(e) == T_ARRAY);
-    assert(RARRAY_LEN(e) == 5);
+    assert(RARRAY_LEN(e) >= 5 && RARRAY_LEN(e) <= 6);
     assert(SYMBOL_P(RARRAY_PTR(e)[0]));
     assert(SYMBOL_P(RARRAY_PTR(e)[1]));
     assert(FIX2UINT(RARRAY_PTR(e)[3]) <= 0xFFFF);
@@ -150,16 +150,24 @@ VALUE RecordModel_initialize(VALUE self, VALUE fields)
   for (size_t i = 0; i < num_fields; ++i)
   {
     // Each entry has the following form:
-    // [:id, :type, is_key, offset, length] 
+    // [:id, :type, is_key, offset, length (,optinal_default_value)]
 
     VALUE e = RARRAY_PTR(fields)[i];
     assert(TYPE(e) == T_ARRAY);
-    assert(RARRAY_LEN(e) == 5);
+    assert(RARRAY_LEN(e) >= 5 && RARRAY_LEN(e) <= 6);
 
     VALUE e_type = RARRAY_PTR(e)[1];
     VALUE e_is_key = RARRAY_PTR(e)[2];
     VALUE e_offset = RARRAY_PTR(e)[3];
     VALUE e_length = RARRAY_PTR(e)[4];
+    VALUE e_default = Qnil;
+
+    uint64_t e_default_num = 0;
+    if (RARRAY_LEN(e) == 6)
+    {
+      e_default = RARRAY_PTR(e)[5];
+      e_default_num = NUM2ULONG(e_default);
+    }
 
     assert(SYMBOL_P(e_type));
 
@@ -173,27 +181,27 @@ VALUE RecordModel_initialize(VALUE self, VALUE fields)
 
     if (ID2SYM(rb_intern("uint64")) == e_type)
     {
-      t = new RM_UINT64();
+      t = new RM_UINT64(e_default_num);
     }
     else if (ID2SYM(rb_intern("uint32")) == e_type)
     {
-      t = new RM_UINT32();
+      t = new RM_UINT32(e_default_num);
     }
     else if (ID2SYM(rb_intern("uint16")) == e_type)
     {
-      t = new RM_UINT16();
+      t = new RM_UINT16(e_default_num);
     }
     else if (ID2SYM(rb_intern("uint8")) == e_type)
     {
-      t = new RM_UINT8();
+      t = new RM_UINT8(e_default_num);
     }
     else if (ID2SYM(rb_intern("timestamp")) == e_type)
     {
-      t = new RM_TIMESTAMP();
+      t = new RM_TIMESTAMP(e_default_num);
     }
     else if (ID2SYM(rb_intern("timestamp_desc")) == e_type)
     {
-      t = new RM_TIMESTAMP_DESC();
+      t = new RM_TIMESTAMP_DESC(e_default_num);
     }
     else if (ID2SYM(rb_intern("double")) == e_type)
     {

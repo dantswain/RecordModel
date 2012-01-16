@@ -7,7 +7,7 @@ class RecordModel
     #
     # An array of:
     #
-    #   [id, type, is_key, offset, length]
+    #   [id, type, is_key, offset, length, optional_default_value]
     #
     # entries.
     #
@@ -19,25 +19,27 @@ class RecordModel
       yield self
     end
 
-    def key(id, type, sz=nil)
-      field(id, type, sz, true)
+    def key(id, type, hash={})
+      field(id, type, true, hash)
     end
 
-    def val(id, type, sz=nil)
-      field(id, type, sz, false)
+    def val(id, type, hash={})
+      field(id, type, false, hash)
     end
 
     private
 
-    def field(id, type, sz, is_key)
-      size = type_size(type, sz) 
-      _add_field(id.to_sym, type, is_key, @current_offset, size)
+    def field(id, type, is_key, hash)
+      size = type_size(type, hash[:size]) 
+      _add_field(id.to_sym, type, is_key, @current_offset, size, hash[:default])
       @current_offset += size
     end
 
-    def _add_field(id, type, is_key, offset, length)
+    def _add_field(id, type, is_key, offset, length, default_value)
       raise if @fields.assoc(id)
-      @fields << [id, type, is_key, offset, length]
+      spec = [id, type, is_key, offset, length]
+      spec << default_value if default_value
+      @fields << spec
     end
 
     def type_size(type, sz)

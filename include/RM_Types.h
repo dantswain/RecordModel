@@ -22,6 +22,7 @@ struct RM_Type
 
   virtual uint8_t size() = 0;
 
+  virtual void set_default(void *a) = 0;
   virtual VALUE to_ruby(const void *a) = 0;
   virtual int set_from_ruby(void *a, VALUE val) = 0;
   virtual int set_from_string(void *a, const char *s, const char *e) = 0;
@@ -49,6 +50,10 @@ struct RM_Type
 template <typename NT, bool order=true>
 struct RM_UInt : RM_Type
 {
+  NT _default;
+
+  RM_UInt(NT def) : _default(def) {}
+
   inline NT *element_ptr(void *data) { return (NT*) (((char*)data)+offset()); }
   inline NT &element(void *data) { return *element_ptr(data); }
   inline NT element(const void *data) { return *element_ptr((void*)data); }
@@ -68,6 +73,11 @@ struct RM_UInt : RM_Type
 
     element(a) = (NT)v;
     return RM_ERR_OK;
+  }
+
+  virtual void set_default(void *a)
+  {
+    element(a) = _default;
   }
 
   virtual int set_from_ruby(void *a, VALUE val)
@@ -230,14 +240,24 @@ struct RM_UInt : RM_Type
   }
 };
 
-struct RM_UINT8 : RM_UInt<uint8_t> {}; 
-struct RM_UINT16 : RM_UInt<uint16_t> {};
-struct RM_UINT32 : RM_UInt<uint32_t> {};
-struct RM_UINT64 : RM_UInt<uint64_t> {};
+struct RM_UINT8 : RM_UInt<uint8_t> {
+  RM_UINT8(uint8_t d) : RM_UInt<uint8_t>(d) {}
+}; 
+struct RM_UINT16 : RM_UInt<uint16_t> {
+  RM_UINT16(uint16_t d) : RM_UInt<uint16_t>(d) {}
+};
+struct RM_UINT32 : RM_UInt<uint32_t> {
+  RM_UINT32(uint32_t d) : RM_UInt<uint32_t>(d) {}
+};
+struct RM_UINT64 : RM_UInt<uint64_t> {
+  RM_UINT64(uint64_t d) : RM_UInt<uint64_t>(d) {}
+};
 
 // with millisecond precision
 struct RM_TIMESTAMP : RM_UInt<uint64_t>
 {
+  RM_TIMESTAMP(uint64_t d) : RM_UInt<uint64_t>(d) {}
+
   virtual int set_from_string(void *a, const char *s, const char *e)
   {
     return _set_uint(a, conv_str_to_uint2(s, e, 3));
@@ -246,6 +266,8 @@ struct RM_TIMESTAMP : RM_UInt<uint64_t>
 
 struct RM_TIMESTAMP_DESC : RM_UInt<uint64_t, false>
 {
+  RM_TIMESTAMP_DESC(uint64_t d) : RM_UInt<uint64_t, false>(d) {}
+
   virtual int set_from_string(void *a, const char *s, const char *e)
   {
     return _set_uint(a, conv_str_to_uint2(s, e, 3));
@@ -266,6 +288,11 @@ struct RM_DOUBLE : RM_Type
   virtual VALUE to_ruby(const void *a)
   {
     return rb_float_new(element(a));
+  }
+
+  virtual void set_default(void *a)
+  {
+    element(a) = 0.0;
   }
 
   virtual int set_from_ruby(void *a, VALUE val)
@@ -423,6 +450,12 @@ struct RM_HEXSTR : RM_Type
       v[(i+i_off)/2] = (v[(i+i_off)/2] << 4) | (uint8_t)digit;
     }
     return RM_ERR_OK;
+  }
+
+
+  virtual void set_default(void *a)
+  {
+    bzero(element_ptr(a), size()); 
   }
 
   virtual int set_from_ruby(void *a, VALUE val)

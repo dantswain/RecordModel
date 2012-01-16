@@ -137,9 +137,13 @@ struct RecordModelInstance
     return rec;
   }
 
+  // Set all values to their default values.
   void zero()
   {
-    bzero(ptr(), size());
+    for (size_t i = 0; i < model->_num_fields; ++i)
+    {
+      model->_all_fields[i]->set_default(ptr());
+    }
   }
 
   void copy(const RecordModelInstance *src)
