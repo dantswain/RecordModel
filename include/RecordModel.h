@@ -364,7 +364,7 @@ struct RecordModelInstanceArray
   /*
    * Copies element at index 'i' (in sorted order) into 'rec'
    */
-  void copy(RecordModelInstance *rec, size_t i)
+  void copy_out(RecordModelInstance *rec, size_t i)
   {
     assert(i < _entries);
     assert(model == rec->model);
@@ -372,6 +372,19 @@ struct RecordModelInstanceArray
     RecordModelInstance src(this->model, ptr_at(i));
     rec->copy(&src);
   }
+
+  /*
+   * Copies 'rec' into element at index 'i' (in sorted order)
+   */
+  void copy_in(const RecordModelInstance *rec, size_t i)
+  {
+    assert(i < _entries);
+    assert(model == rec->model);
+
+    RecordModelInstance dst(this->model, ptr_at(i));
+    dst.copy(rec);
+  }
+
 
   /*
    * Sorts the array. Does not move the entries around, but instead 

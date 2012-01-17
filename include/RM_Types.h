@@ -22,6 +22,9 @@ struct RM_Type
 
   virtual uint8_t size() = 0;
 
+  // returns true if the internal value is equal to Ruby value "val"
+  virtual bool equal_ruby(void *a, VALUE val) = 0;
+
   virtual void set_default(void *a) = 0;
   virtual VALUE to_ruby(const void *a) = 0;
   virtual int set_from_ruby(void *a, VALUE val) = 0;
@@ -59,6 +62,11 @@ struct RM_UInt : RM_Type
   inline NT element(const void *data) { return *element_ptr((void*)data); }
 
   virtual uint8_t size() { return sizeof(NT); }
+
+  virtual bool equal_ruby(void *a, VALUE val)
+  {
+    return element(a) == (NT)NUM2ULONG(val); 
+  }
 
   virtual VALUE to_ruby(const void *a)
   {
@@ -285,6 +293,11 @@ struct RM_DOUBLE : RM_Type
 
   virtual uint8_t size() { return sizeof(NT); }
 
+  virtual bool equal_ruby(void *a, VALUE val)
+  {
+    return element(a) == (NT)NUM2DBL(val);
+  }
+
   virtual VALUE to_ruby(const void *a)
   {
     return rb_float_new(element(a));
@@ -400,6 +413,13 @@ struct RM_HEXSTR : RM_Type
     if (/*v >= 0 && */v <= 9) return '0' + v;
     if (v >= 10 && v <= 15) return 'A' + v - 10;
     return '#';
+  }
+
+  // XXX: Not yet implemented
+  virtual bool equal_ruby(void *a, VALUE val)
+  {
+    assert(false);
+    return false;
   }
 
   virtual VALUE to_ruby(const void *a)

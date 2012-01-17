@@ -734,6 +734,41 @@ VALUE RecordModelInstanceArray_bulk_set(VALUE _self, VALUE field_idx, VALUE val)
   return Qnil;
 }
 
+/*
+ * If the value of field_idx is equal to val, then yield the record to the block, and
+ * write back the modified record.
+ */
+static
+VALUE RecordModelInstanceArray_update_each(VALUE _self, VALUE field_idx, VALUE val, VALUE _rec)
+{
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+  RecordModelInstance *rec = get_RecordModelInstance(_rec);
+
+  if (self->model != rec->model)
+  {
+    rb_raise(rb_eArgError, "Model mismatch");
+  }
+
+  RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
+
+  if (field == NULL)
+  {
+    rb_raise(rb_eArgError, "Wrong index");
+  }
+
+  for (size_t i = 0; i < self->entries(); ++i)
+  {
+    if (field->equal_ruby(self->ptr_at(i), val))
+    {
+      self->copy_out(rec, i);
+      rb_yield(_rec);
+      self->copy_in(rec, i);
+    }
+  }
+
+  return Qnil;
+}
+
 struct Params
 {
   RecordModelInstanceArray *self;
@@ -936,7 +971,7 @@ VALUE RecordModelInstanceArray_each(VALUE _self, VALUE _rec)
 
   for (size_t i = 0; i < self->entries(); ++i)
   {
-    self->copy(rec, i);
+    self->copy_out(rec, i);
     rb_yield(_rec);
   }
 
@@ -986,5 +1021,6 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstanceArray, "capacity", (VALUE (*)(...)) RecordModelInstanceArray_capacity, 0);
   rb_define_method(cRecordModelInstanceArray, "expandable?", (VALUE (*)(...)) RecordModelInstanceArray_expandable, 0);
   rb_define_method(cRecordModelInstanceArray, "_each", (VALUE (*)(...)) RecordModelInstanceArray_each, 1);
+  rb_define_method(cRecordModelInstanceArray, "_update_each", (VALUE (*)(...)) RecordModelInstanceArray_update_each, 3);
   rb_define_method(cRecordModelInstanceArray, "sort", (VALUE (*)(...)) RecordModelInstanceArray_sort, 0);
 }

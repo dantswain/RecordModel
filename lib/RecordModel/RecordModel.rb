@@ -195,6 +195,11 @@ class RecordModelInstanceArray
     _each(instance) {|i| yield i.dup}
   end
 
+  def update_each(attr, matching_value, instance=nil, &block)
+    instance ||= @model_klass.new
+    _update_each(@model_klass.sym_to_fld_idx(attr), matching_value, instance, &block)
+  end
+
   alias old_bulk_set bulk_set
   def bulk_set(attr, value)
     old_bulk_set(@model_klass.sym_to_fld_idx(attr), value)
