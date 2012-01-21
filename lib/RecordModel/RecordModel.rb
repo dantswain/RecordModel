@@ -52,10 +52,12 @@ class RecordModel
       when :timestamp_desc then 8
       when :double then 8
       when :hexstr then sz 
+      when :string then sz 
       else
         raise
       end
       raise if sz and size != sz
+      raise if size > 255
       return size
     end
   end
@@ -173,6 +175,10 @@ class RecordModelInstance
   end
 
   def self.sym_to_fld_idx(sym)
+    __info().index {|fld| fld.first == sym} || raise
+  end
+
+  def sym_to_fld_idx(sym)
     __info().index {|fld| fld.first == sym} || raise
   end
 

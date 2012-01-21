@@ -13,6 +13,7 @@
 #define RM_ERR_INT_RANGE 1
 #define RM_ERR_HEX_INV_SIZE 10
 #define RM_ERR_HEX_INV_DIGIT 11
+#define RM_ERR_STR_TOO_LONG 20
 
 struct RM_Type
 {
@@ -396,24 +397,16 @@ struct RM_DOUBLE : RM_Type
   }
 };
 
-// XXX: ascending, descending
-struct RM_HEXSTR : RM_Type
+struct RM_String : RM_Type
 {
   uint8_t _size;
 
-  RM_HEXSTR(uint8_t size) : _size(size) {}
+  RM_String(uint8_t size) : _size(size) {}
 
   virtual uint8_t size() { return _size; }
 
   inline uint8_t *element_ptr(void *data) { return (uint8_t*) (((char*)data)+offset()); }
   inline const uint8_t *element_ptr(const void *data) { return (const uint8_t*) (((const char*)data)+offset()); }
-
-  char to_hex_digit(uint8_t v)
-  {
-    if (/*v >= 0 && */v <= 9) return '0' + v;
-    if (v >= 10 && v <= 15) return 'A' + v - 10;
-    return '#';
-  }
 
   // XXX: Not yet implemented
   virtual bool equal_ruby(void *a, VALUE val)
@@ -422,72 +415,14 @@ struct RM_HEXSTR : RM_Type
     return false;
   }
 
-  virtual VALUE to_ruby(const void *a)
-  {
-    const uint8_t *ptr = element_ptr(a);
-
-    VALUE strbuf = rb_str_buf_new(2*size());
-    char cbuf[3];
-    cbuf[2] = 0;
-    for (int i = 0; i < size(); ++i)
-    {
-      cbuf[0] = to_hex_digit((ptr[i]) >> 4);
-      cbuf[1] = to_hex_digit((ptr[i]) & 0x0F);
-      rb_str_buf_cat_ascii(strbuf, cbuf);
-    }
-    return strbuf;
-  }
-
-  int from_hex_digit(char c)
-  {
-    if (c >= '0' && c <= '9') return c-'0';
-    if (c >= 'a' && c <= 'f') return c-'a'+10;
-    if (c >= 'A' && c <= 'F') return c-'A'+10;
-    return -1;
-  }
-
-  int parse_hexstring(uint8_t *v, int strlen, const char *str)
-  {
-    const int max_sz = 2*size();
-    const int i_off = max_sz - strlen;
-
-    if (strlen > max_sz)
-    {
-      return RM_ERR_HEX_INV_SIZE;
-    }
-
-    bzero(v, size());
-
-    for (int i = 0; i < strlen; ++i)
-    {
-      int digit = from_hex_digit(str[i]);
-      if (digit < 0)
-      {
-        // invalid hex digit at str[i]
-        return RM_ERR_HEX_INV_DIGIT;
-      }
-
-      v[(i+i_off)/2] = (v[(i+i_off)/2] << 4) | (uint8_t)digit;
-    }
-    return RM_ERR_OK;
-  }
-
-
   virtual void set_default(void *a)
   {
     bzero(element_ptr(a), size()); 
   }
 
-  virtual int set_from_ruby(void *a, VALUE val)
-  {
-    Check_Type(val, T_STRING);
-    return parse_hexstring(element_ptr(a), RSTRING_LEN(val), RSTRING_PTR(val));
-  }
-
-  virtual int set_from_string(void *a, const char *s, const char *e)
-  {
-    return parse_hexstring(element_ptr(a), (int)(e-s), s);
-  }
+  //virtual VALUE to_ruby(const void *a) = 0;
+  //virtual int set_from_ruby(void *a, VALUE val) = 0;
+  //virtual int set_from_string(void *a, const char *s, const char *e) = 0;
 
   virtual void set_from_memory(void *a, const void *ptr)
   {
@@ -583,6 +518,114 @@ struct RM_HEXSTR : RM_Type
   virtual int compare_with_memory(const void *a, const void *mem)
   {
     return compare_pointers(element_ptr(a), (const uint8_t*)mem);
+  }
+};
+
+struct RM_HEXSTR : RM_String
+{
+  RM_HEXSTR(uint8_t size) : RM_String(size) {}
+
+  char to_hex_digit(uint8_t v)
+  {
+    if (/*v >= 0 && */v <= 9) return '0' + v;
+    if (v >= 10 && v <= 15) return 'A' + v - 10;
+    return '#';
+  }
+
+  int from_hex_digit(char c)
+  {
+    if (c >= '0' && c <= '9') return c-'0';
+    if (c >= 'a' && c <= 'f') return c-'a'+10;
+    if (c >= 'A' && c <= 'F') return c-'A'+10;
+    return -1;
+  }
+
+  int parse_hexstring(uint8_t *v, int strlen, const char *str)
+  {
+    const int max_sz = 2*size();
+    const int i_off = max_sz - strlen;
+
+    if (strlen > max_sz)
+    {
+      return RM_ERR_HEX_INV_SIZE;
+    }
+
+    bzero(v, size());
+
+    for (int i = 0; i < strlen; ++i)
+    {
+      int digit = from_hex_digit(str[i]);
+      if (digit < 0)
+      {
+        // invalid hex digit at str[i]
+        return RM_ERR_HEX_INV_DIGIT;
+      }
+
+      v[(i+i_off)/2] = (v[(i+i_off)/2] << 4) | (uint8_t)digit;
+    }
+    return RM_ERR_OK;
+  }
+
+  virtual VALUE to_ruby(const void *a)
+  {
+    const uint8_t *ptr = element_ptr(a);
+
+    VALUE strbuf = rb_str_buf_new(2*size());
+    char cbuf[3];
+    cbuf[2] = 0;
+    for (int i = 0; i < size(); ++i)
+    {
+      cbuf[0] = to_hex_digit((ptr[i]) >> 4);
+      cbuf[1] = to_hex_digit((ptr[i]) & 0x0F);
+      rb_str_buf_cat_ascii(strbuf, cbuf);
+    }
+    return strbuf;
+  }
+
+  virtual int set_from_ruby(void *a, VALUE val)
+  {
+    Check_Type(val, T_STRING);
+    return parse_hexstring(element_ptr(a), RSTRING_LEN(val), RSTRING_PTR(val));
+  }
+
+  virtual int set_from_string(void *a, const char *s, const char *e)
+  {
+    return parse_hexstring(element_ptr(a), (int)(e-s), s);
+  }
+
+};
+
+struct RM_STR : RM_String
+{
+  RM_STR(uint8_t size) : RM_String(size) {}
+
+  int parse_string(uint8_t *v, int strlen, const char *str)
+  {
+    if (strlen > size())
+      return RM_ERR_STR_TOO_LONG;
+
+    for (int i=0; i < size(); ++i)
+    {
+      v[i] = (i < strlen) ? (uint8_t)str[i] : (uint8_t)0;
+    }
+
+    return RM_ERR_OK;
+  }
+
+  virtual VALUE to_ruby(const void *a)
+  {
+    return rb_str_new((const char*)element_ptr(a), size());
+  }
+
+  virtual int set_from_ruby(void *a, VALUE val)
+  {
+    Check_Type(val, T_STRING);
+    return parse_string(element_ptr(a), RSTRING_LEN(val), RSTRING_PTR(val));
+  }
+
+  virtual int set_from_string(void *a, const char *s, const char *e)
+  {
+    return parse_string(element_ptr(a), (int)(e-s), s);
   }
 
 };

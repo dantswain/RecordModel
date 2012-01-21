@@ -211,6 +211,10 @@ VALUE RecordModel_initialize(VALUE self, VALUE fields)
     {
       t = new RM_HEXSTR(length);
     }
+    else if (ID2SYM(rb_intern("string")) == e_type)
+    {
+      t = new RM_STR(length);
+    }
     else
     {
       assert(false);
