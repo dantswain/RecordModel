@@ -3,24 +3,14 @@ require 'thread'
 
 class RecordModel::LineParser
 
-  def self.import(io, db, item_class, array_item_class, line_parse_descr, array_sz=2**22,
-    report_failures=false, report_progress_every=1_000_000, &block)
-
-    parser = new(db, item_class, array_item_class, line_parse_descr, array_sz,
-                 report_failures, report_progress_every)
-    parser.start
-    res = parser.import(io, &block)
-    parser.start
-    return res
-  end
-
-  def initialize(db, item_class, array_item_class, line_parse_descr, array_sz=2**22,
+  def initialize(db, item_class, array_item_class, line_parse_descr, sep=' ', array_sz=2**22,
     report_failures=false, report_progress_every=1_000_000, threaded=true)
     @db = db
     @item_class = item_class
     @item = @item_class.new
     @array_item_class = array_item_class
     @line_parse_descr = line_parse_descr
+    @sep = sep
     @report_failures = report_failures
     @report_progress_every = report_progress_every
 
@@ -66,6 +56,7 @@ class RecordModel::LineParser
     line_parse_descr = @line_parse_descr
     report_failures = @report_failures
     report_progress_every = @report_progress_every
+    sep = @sep
 
     item = @item
 
@@ -81,7 +72,7 @@ class RecordModel::LineParser
         end
 
         item.zero!
-        error = item.parse_line(line, line_parse_descr)
+        error = item.parse_line(line, line_parse_descr, sep)
         if new_item = convert_item(error, item)
           arr << new_item
           lines_ok += 1
@@ -144,11 +135,12 @@ end
 
 class RecordModel::FastLineParser
 
-  def initialize(db, item_class, line_parse_descr, array_sz=2**22, reject_token_parse_error=true, reject_invalid_num_tokens=true, valid_token_range=nil)
+  def initialize(db, item_class, line_parse_descr, sep=' ', array_sz=2**22, reject_token_parse_error=true, reject_invalid_num_tokens=true, valid_token_range=nil)
     @db = db
     @item_class = item_class
     @item = @item_class.new
     @line_parse_descr = line_parse_descr
+    @sep = sep
     @reject_token_parse_error = reject_token_parse_error
     @reject_invalid_num_tokens = reject_invalid_num_tokens
     @valid_token_range = valid_token_range || (line_parse_descr .. -1) 
@@ -199,7 +191,7 @@ class RecordModel::FastLineParser
 
     loop do
       before = @current_arr.size
-      more, lines = @current_arr.bulk_parse_line(@item, io.to_i, @line_parse_descr, max_line_len, 
+      more, lines = @current_arr.bulk_parse_line(@item, io.to_i, @line_parse_descr, @sep, max_line_len, 
         @reject_token_parse_error, @reject_invalid_num_tokens, @valid_token_range.first, @valid_token_range.last, &block)
       lines_read += lines
       lines_ok += (@current_arr.size - before)

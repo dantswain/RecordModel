@@ -466,7 +466,7 @@ VALUE RecordModelInstance_set_from_string(VALUE _self, VALUE field_idx, VALUE st
   return _self;
 }
 
-const char *parse_token(const char **src)
+const char *parse_token_space_sep(const char **src)
 {
   const char *ptr = *src;
 
@@ -484,6 +484,38 @@ const char *parse_token(const char **src)
   *src = ptr; // endptr
 
   return beg;
+}
+
+const char *parse_token_sep(const char **src, char sep)
+{
+  const char *ptr = *src;
+
+  // at first skip whitespaces
+  while (isspace(*ptr)) ++ptr;
+
+  const char *beg = ptr;
+
+  // copy the token into the buffer
+  while (*ptr != '\0' && *ptr != sep)
+  {
+    ++ptr;
+  }
+
+  *src = ptr; // endptr
+
+  return beg;
+}
+
+/*
+ * Treat a whitespace as separator as all isspace characters, not just
+ * the whitespace (ASCII 32) itself.
+ */
+const char *parse_token(const char **src, char sep)
+{
+  if (sep == 32)
+    return parse_token_space_sep(src);
+  else
+    return parse_token_sep(src, sep);
 }
 
 static
@@ -513,7 +545,7 @@ void validate_field_arr(RecordModel *model, VALUE _field_arr)
  * could parse all tokens successfully, but there is more input available.
  */
 static
-int parse_line2(RecordModelInstance *self, const char *str, const std::vector<int> &field_arr, int &err)
+int parse_line2(RecordModelInstance *self, const char *str, const std::vector<int> &field_arr, char sep, int &err)
 {
   const char *next = str;
   const char *tok = NULL;
@@ -524,7 +556,7 @@ int parse_line2(RecordModelInstance *self, const char *str, const std::vector<in
   {
     err = RM_ERR_OK;
 
-    tok = parse_token(&next);
+    tok = parse_token(&next, sep);
     if (tok == next)
       return i; // premature end
 
@@ -540,7 +572,7 @@ int parse_line2(RecordModelInstance *self, const char *str, const std::vector<in
     }
   }
 
-  tok = parse_token(&next);
+  tok = parse_token(&next, sep);
   if (tok == next)
     return i; // means, OK
   else
@@ -548,7 +580,7 @@ int parse_line2(RecordModelInstance *self, const char *str, const std::vector<in
 }
 
 static
-int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, int &err)
+int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, char sep, int &err)
 {
   const char *next = str;
   const char *tok = NULL;
@@ -560,7 +592,7 @@ int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, int
     err = RM_ERR_OK;
     VALUE e = RARRAY_PTR(_field_arr)[i];
 
-    tok = parse_token(&next);
+    tok = parse_token(&next, sep);
     if (tok == next)
       return i; // premature end
 
@@ -576,7 +608,7 @@ int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, int
     }
   }
 
-  tok = parse_token(&next);
+  tok = parse_token(&next, sep);
   if (tok == next)
     return i; // means, OK
   else
@@ -590,16 +622,22 @@ int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, int
  * See parse_line2. 
  */
 static
-VALUE RecordModelInstance_parse_line(VALUE _self, VALUE _line, VALUE _field_arr)
+VALUE RecordModelInstance_parse_line(VALUE _self, VALUE _line, VALUE _field_arr, VALUE _sep)
 {
   RecordModelInstance *self = get_RecordModelInstance(_self);
 
   Check_Type(_line, T_STRING);
   Check_Type(_field_arr, T_ARRAY);
+  Check_Type(_sep, T_STRING);
   validate_field_arr(self->model, _field_arr);
 
+  if (RSTRING_LEN(_sep) != 1)
+    rb_raise(rb_eArgError, "Single character string expected");
+
+  char sep = RSTRING_PTR(_sep)[0];
+
   int err = 0;
-  int num_tokens = parse_line(self, RSTRING_PTR(_line), _field_arr, err);
+  int num_tokens = parse_line(self, RSTRING_PTR(_line), _field_arr, sep, err);
 
   if (err)
   {
@@ -791,6 +829,8 @@ struct Params
   bool reject_invalid_num_tokens;
   int min_num_tokens;
   int max_num_tokens;
+
+  char sep;
 };
 
 static
@@ -825,7 +865,7 @@ VALUE bulk_parse_line(void *ptr)
 
     p->rec->zero();
 
-    p->num_tokens = parse_line2(p->rec, p->buf, p->field_arr, p->parse_error);
+    p->num_tokens = parse_line2(p->rec, p->buf, p->field_arr, p->sep, p->parse_error);
     if (p->parse_error)
     {
       // We either reject item for which a parse error occured, or we have 
@@ -861,7 +901,7 @@ VALUE bulk_parse_line(void *ptr)
 }
 
 static
-VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io_int, VALUE _field_arr, VALUE _bufsz,
+VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io_int, VALUE _field_arr, VALUE _sep, VALUE _bufsz,
   VALUE _reject_token_parse_error, VALUE _reject_invalid_num_tokens, VALUE _min_num_tokens, VALUE _max_num_tokens)
 {
   Params p;
@@ -870,7 +910,13 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
   p.self = get_RecordModelInstanceArray(_self);
   p.rec = get_RecordModelInstance(p._rec);
   Check_Type(_field_arr, T_ARRAY);
+  Check_Type(_sep, T_STRING);
   validate_field_arr(p.self->model, _field_arr);
+
+  if (RSTRING_LEN(_sep) != 1)
+    rb_raise(rb_eArgError, "Single character string expected");
+
+  p.sep = RSTRING_PTR(_sep)[0];
 
   for (int i=0; i < RARRAY_LEN(_field_arr); ++i)
   {
@@ -1009,7 +1055,7 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstance, "dup", (VALUE (*)(...)) RecordModelInstance_dup, 0);
   rb_define_method(cRecordModelInstance, "add_values!", (VALUE (*)(...)) RecordModelInstance_add_values, 1);
   rb_define_method(cRecordModelInstance, "<=>", (VALUE (*)(...)) RecordModelInstance_cmp, 1);
-  rb_define_method(cRecordModelInstance, "parse_line", (VALUE (*)(...)) RecordModelInstance_parse_line, 2);
+  rb_define_method(cRecordModelInstance, "parse_line", (VALUE (*)(...)) RecordModelInstance_parse_line, 3);
   rb_define_method(cRecordModelInstance, "to_s", (VALUE (*)(...)) RecordModelInstance_to_s, 0);
 
   cRecordModelInstanceArray = rb_define_class("RecordModelInstanceArray", rb_cObject);
@@ -1018,7 +1064,7 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstanceArray, "empty?", (VALUE (*)(...)) RecordModelInstanceArray_is_empty, 0);
   rb_define_method(cRecordModelInstanceArray, "full?", (VALUE (*)(...)) RecordModelInstanceArray_is_full, 0);
   rb_define_method(cRecordModelInstanceArray, "bulk_set", (VALUE (*)(...)) RecordModelInstanceArray_bulk_set, 2);
-  rb_define_method(cRecordModelInstanceArray, "bulk_parse_line", (VALUE (*)(...)) RecordModelInstanceArray_bulk_parse_line, 8);
+  rb_define_method(cRecordModelInstanceArray, "bulk_parse_line", (VALUE (*)(...)) RecordModelInstanceArray_bulk_parse_line, 9);
   rb_define_method(cRecordModelInstanceArray, "<<", (VALUE (*)(...)) RecordModelInstanceArray_push, 1);
   rb_define_method(cRecordModelInstanceArray, "reset", (VALUE (*)(...)) RecordModelInstanceArray_reset, 0);
   rb_define_method(cRecordModelInstanceArray, "size", (VALUE (*)(...)) RecordModelInstanceArray_size, 0);

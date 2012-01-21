@@ -159,7 +159,7 @@ class RecordModelInstance
   end
 
   #
-  # Example usage: def_parser_descr(:uid, :campaign_id, nil, :timestamp)
+  # Example usage: def_parse_descr(:uid, :campaign_id, nil, :timestamp)
   #
   def self.def_parse_descr(*args)
     args.map {|arg|
