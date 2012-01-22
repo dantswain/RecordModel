@@ -20,6 +20,26 @@ class TestRecordModel < Test::Unit::TestCase
     end
   end
 
+  def test_parse_line1
+    item = @klass.new
+    res = item.parse_line("  22   2.3 10000.999  ",
+      [:a, :e, :g].map {|fld| item.sym_to_fld_idx(fld)}, " ")
+    assert_equal 3, res
+    assert_equal 22, item.a
+    assert_equal 2.3, item.e
+    assert_equal 10000_999, item.g
+  end
+
+  def test_parse_line2
+    item = @klass.new
+    res = item.parse_line("22,2.3,10000.999",
+      [:a, :e, :g].map {|fld| item.sym_to_fld_idx(fld)}, ",")
+    assert_equal 3, res
+    assert_equal 22, item.a
+    assert_equal 2.3, item.e
+    assert_equal 10000_999, item.g
+  end
+
   def test_model_size
     assert_equal(87, @klass.model.size)
   end

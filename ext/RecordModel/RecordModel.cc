@@ -466,58 +466,6 @@ VALUE RecordModelInstance_set_from_string(VALUE _self, VALUE field_idx, VALUE st
   return _self;
 }
 
-const char *parse_token_space_sep(const char **src)
-{
-  const char *ptr = *src;
-
-  // at first skip whitespaces
-  while (isspace(*ptr)) ++ptr;
-
-  const char *beg = ptr;
-
-  // copy the token into the buffer
-  while (*ptr != '\0' && !isspace(*ptr))
-  {
-    ++ptr;
-  }
-
-  *src = ptr; // endptr
-
-  return beg;
-}
-
-const char *parse_token_sep(const char **src, char sep)
-{
-  const char *ptr = *src;
-
-  // at first skip whitespaces
-  while (isspace(*ptr)) ++ptr;
-
-  const char *beg = ptr;
-
-  // copy the token into the buffer
-  while (*ptr != '\0' && *ptr != sep)
-  {
-    ++ptr;
-  }
-
-  *src = ptr; // endptr
-
-  return beg;
-}
-
-/*
- * Treat a whitespace as separator as all isspace characters, not just
- * the whitespace (ASCII 32) itself.
- */
-const char *parse_token(const char **src, char sep)
-{
-  if (sep == 32)
-    return parse_token_space_sep(src);
-  else
-    return parse_token_sep(src, sep);
-}
-
 static
 void validate_field_arr(RecordModel *model, VALUE _field_arr)
 {
@@ -536,6 +484,70 @@ void validate_field_arr(RecordModel *model, VALUE _field_arr)
   }
 }
 
+struct Token
+{
+  const char *beg;
+  const char *end;
+
+  Token() : beg(NULL), end(NULL) {}
+
+  bool empty()
+  {
+    if (beg == end) return true;
+    return false;
+  }
+
+  const char *parse_space_sep(const char *ptr)
+  {
+    // at first skip whitespaces
+    while (isspace(*ptr)) ++ptr;
+
+    this->beg = ptr;
+
+    // copy the token into the buffer
+    while (*ptr != '\0' && !isspace(*ptr))
+    {
+      ++ptr;
+    }
+
+    this->end = ptr; // endptr
+
+    return ptr;
+  }
+
+  const char *parse_sep(const char *ptr, char sep)
+  {
+    // at first skip whitespaces
+    //while (isspace(*ptr)) ++ptr;
+
+    this->beg = ptr;
+
+    // copy the token into the buffer
+    while (*ptr != '\0' && *ptr != sep)
+    {
+      ++ptr;
+    }
+
+    this->end = ptr; // endptr
+
+    if (*ptr == sep) ++ptr;
+
+    return ptr;
+  }
+
+  /*
+   * Treat a whitespace as separator as all isspace characters, not just
+   * the whitespace (ASCII 32) itself.
+   */
+  const char *parse(const char *ptr, char sep)
+  {
+    if (sep == 32)
+      return parse_space_sep(ptr);
+    else
+      return parse_sep(ptr, sep);
+  }
+};
+
 /*
  * Returns the number of successfully parsed tokens.
  *
@@ -547,8 +559,8 @@ void validate_field_arr(RecordModel *model, VALUE _field_arr)
 static
 int parse_line2(RecordModelInstance *self, const char *str, const std::vector<int> &field_arr, char sep, int &err)
 {
+  Token token;
   const char *next = str;
-  const char *tok = NULL;
   err = RM_ERR_OK;
 
   size_t i;
@@ -556,8 +568,8 @@ int parse_line2(RecordModelInstance *self, const char *str, const std::vector<in
   {
     err = RM_ERR_OK;
 
-    tok = parse_token(&next, sep);
-    if (tok == next)
+    next = token.parse(next, sep);
+    if (token.empty())
       return i; // premature end
 
     if (field_arr[i] < 0)
@@ -565,15 +577,15 @@ int parse_line2(RecordModelInstance *self, const char *str, const std::vector<in
 
     RM_Type *field = self->model->get_field(field_arr[i]);
     assert(field);
-    err = field->set_from_string(self->ptr(), tok, next);
+    err = field->set_from_string(self->ptr(), token.beg, token.end);
     if (err)
     {
       return i;
     }
   }
 
-  tok = parse_token(&next, sep);
-  if (tok == next)
+  next = token.parse(next, sep);
+  if (token.empty())
     return i; // means, OK
   else
     return i+1; // means, has additional items
@@ -582,8 +594,8 @@ int parse_line2(RecordModelInstance *self, const char *str, const std::vector<in
 static
 int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, char sep, int &err)
 {
+  Token token;
   const char *next = str;
-  const char *tok = NULL;
   err = RM_ERR_OK;
 
   size_t i;
@@ -592,8 +604,8 @@ int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, cha
     err = RM_ERR_OK;
     VALUE e = RARRAY_PTR(_field_arr)[i];
 
-    tok = parse_token(&next, sep);
-    if (tok == next)
+    next = token.parse(next, sep);
+    if (token.empty())
       return i; // premature end
 
     if (NIL_P(e))
@@ -601,15 +613,15 @@ int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, cha
 
     RM_Type *field = self->model->get_field(FIX2UINT(e));
     assert(field);
-    err = field->set_from_string(self->ptr(), tok, next);
+    err = field->set_from_string(self->ptr(), token.beg, token.end);
     if (err)
     {
       return i;
     }
   }
 
-  tok = parse_token(&next, sep);
-  if (tok == next)
+  next = token.parse(next, sep);
+  if (token.empty())
     return i; // means, OK
   else
     return i+1; // means, has additional items
