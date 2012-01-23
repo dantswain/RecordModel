@@ -87,6 +87,53 @@ end
 class RecordModelInstance
   include Comparable
 
+  # XXX: check offset! offsetof macro. default value.
+  def self.to_c_struct(name=nil, out="")
+    name ||= self.name
+    raise unless name
+
+    out << "#ifndef __#{name}__HEADER__\n"
+    out << "#define __#{name}__HEADER__\n"
+
+    __info().each_with_index {|arr, i|
+      id = arr.first
+      out << "#define FLD_#{name}_#{id} #{i}\n"
+    }
+    out << "#pragma pack(push, 1)\n"
+    out << "struct #{name}\n{\n"
+    __info().each {|id, type, is_key, offset, length, opt_def|
+      out << "  "; out << to_c_type(type, id.to_s, length); out << ";\n"
+    }
+    out << "};\n"
+    out << "#pragma pack(pop)\n"
+    out << "#endif\n"
+    return out
+  end
+
+  def self.write_c_struct(name=nil, filename=nil)
+    name ||= self.name
+    raise unless name
+    filename ||= name + ".h"
+
+    File.write(filename, to_c_struct(name))
+  end
+
+  def self.to_c_type(type, name, sz)
+    case type
+    when :uint64 then 'uint64_t %s'
+    when :uint32 then 'uint32_t %s'
+    when :uint16 then 'uint16_t %s'
+    when :uint8  then 'uint8_t %s'
+    when :timestamp then 'uint64_t %s'
+    when :timestamp_desc then 'uint64_t %s'
+    when :double then 'double %s'
+    when :hexstr then "char %s[#{sz}]"
+    when :string then "char %s[#{sz}]" 
+    else
+      raise
+    end % name
+  end
+
   alias old_initialize initialize
 
   def initialize(hash=nil)
