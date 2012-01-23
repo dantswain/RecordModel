@@ -11,9 +11,80 @@
 
 #define RM_ERR_OK 0
 #define RM_ERR_INT_RANGE 1
+#define RM_ERR_INT_INV 2
 #define RM_ERR_HEX_INV_SIZE 10
 #define RM_ERR_HEX_INV_DIGIT 11
 #define RM_ERR_STR_TOO_LONG 20
+
+struct RM_Conversion
+{
+  static uint64_t str_to_uint(const char *s, const char *e, int &err)
+  {
+    uint64_t v = 0;
+
+    err = RM_ERR_OK;
+    for (; s != e; ++s)
+    {
+      char c = *s;
+      if (c >= '0' && c <= '9')
+      {
+        v *= 10;
+        v += (c-'0');
+      }
+      else
+      {
+        err = RM_ERR_INT_INV; // invalid 
+      }
+    }
+    return v;
+  }
+
+  static uint64_t str_to_uint2(const char *s, const char *e, int precision, int &err)
+  {
+    uint64_t v = 0;
+    int post_digits = -1; 
+
+    err = RM_ERR_OK;
+    for (; s != e; ++s)
+    {
+      char c = *s;
+      if (c >= '0' && c <= '9')
+      {
+        v *= 10;
+        v += (c-'0');
+        if (post_digits >= 0)
+          ++post_digits;
+      }
+      else if (c == '.')
+      {
+        if (post_digits < 0)
+        {
+          post_digits = 0;
+        }
+        else
+        {
+          err = RM_ERR_INT_INV; // invalid (duplicate ".")
+        }
+      }
+      else
+      {
+        err = RM_ERR_INT_INV; // invalid character
+      }
+    }
+
+    for (; post_digits < precision; ++post_digits)
+    {
+      v *= 10;
+    }
+
+    for (; post_digits > precision; --post_digits)
+    {
+      v /= 10;
+    }
+ 
+    return v;
+  }
+};
 
 struct RM_Type
 {
@@ -94,72 +165,12 @@ struct RM_UInt : RM_Type
     return _set_uint(a, (uint64_t)NUM2ULONG(val));
   }
 
-  // XXX: handle conversion failures
-  static uint64_t conv_str_to_uint(const char *s, const char *e)
-  {
-    uint64_t v = 0;
-    for (; s != e; ++s)
-    {
-      char c = *s;
-      if (c >= '0' && c <= '9')
-      {
-        v *= 10;
-        v += (c-'0');
-      }
-      else
-      {
-        return 0; // invalid
-      }
-    }
-    return v;
-  }
-
-  // XXX: handle conversion failures
-  static uint64_t conv_str_to_uint2(const char *s, const char *e, int precision)
-  {
-    uint64_t v = 0;
-    int post_digits = -1; 
-    for (; s != e; ++s)
-    {
-      char c = *s;
-      if (c >= '0' && c <= '9')
-      {
-        v *= 10;
-        v += (c-'0');
-        if (post_digits >= 0)
-          ++post_digits;
-      }
-      else if (c == '.')
-      {
-        if (post_digits >= 0)
-        {
-          return 0; // invalid
-        }
-        // ignore
-        post_digits = 0;
-      }
-      else
-      {
-        return 0; // invalid
-      }
-    }
-
-    for (; post_digits < precision; ++post_digits)
-    {
-      v *= 10;
-    }
-
-    for (; post_digits > precision; --post_digits)
-    {
-      v /= 10;
-    }
- 
-    return v;
-  }
-
   virtual int set_from_string(void *a, const char *s, const char *e)
   {
-    return _set_uint(a, conv_str_to_uint(s, e));
+    int err;
+    uint64_t i = RM_Conversion::str_to_uint(s, e, err);
+    if (err) return err;
+    return _set_uint(a, i);
   }
 
   virtual void set_from_memory(void *a, const void *ptr)
@@ -269,7 +280,10 @@ struct RM_TIMESTAMP : RM_UInt<uint64_t>
 
   virtual int set_from_string(void *a, const char *s, const char *e)
   {
-    return _set_uint(a, conv_str_to_uint2(s, e, 3));
+    int err;
+    uint64_t i = RM_Conversion::str_to_uint2(s, e, 3, err);
+    if (err) return err;
+    return _set_uint(a, i);
   }
 };
 
@@ -279,7 +293,10 @@ struct RM_TIMESTAMP_DESC : RM_UInt<uint64_t, false>
 
   virtual int set_from_string(void *a, const char *s, const char *e)
   {
-    return _set_uint(a, conv_str_to_uint2(s, e, 3));
+    int err;
+    uint64_t i = RM_Conversion::str_to_uint2(s, e, 3, err);
+    if (err) return err;
+    return _set_uint(a, i);
   }
 };
 
