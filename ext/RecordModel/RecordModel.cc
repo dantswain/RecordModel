@@ -1,7 +1,6 @@
 #include "../../include/RecordModel.h"
 #include <assert.h> // assert
 #include <strings.h> // bzero
-#include <ctype.h> // isspace etc.
 #include <algorithm> // std::max
 #include <unistd.h> // dup()
 #include <stdio.h> // feof, fgets, fdopen, fclose
@@ -484,147 +483,45 @@ void validate_field_arr(RecordModel *model, VALUE _field_arr)
   }
 }
 
-struct Token
-{
-  const char *beg;
-  const char *end;
-
-  Token() : beg(NULL), end(NULL) {}
-
-  bool empty()
-  {
-    if (beg == end) return true;
-    return false;
-  }
-
-  const char *parse_space_sep(const char *ptr)
-  {
-    // at first skip whitespaces
-    while (isspace(*ptr)) ++ptr;
-
-    this->beg = ptr;
-
-    // copy the token into the buffer
-    while (*ptr != '\0' && !isspace(*ptr))
-    {
-      ++ptr;
-    }
-
-    this->end = ptr; // endptr
-
-    return ptr;
-  }
-
-  const char *parse_sep(const char *ptr, char sep)
-  {
-    // at first skip whitespaces
-    //while (isspace(*ptr)) ++ptr;
-
-    this->beg = ptr;
-
-    // copy the token into the buffer
-    while (*ptr != '\0' && *ptr != sep)
-    {
-      ++ptr;
-    }
-
-    this->end = ptr; // endptr
-
-    if (*ptr == sep) ++ptr;
-
-    return ptr;
-  }
-
-  /*
-   * Treat a whitespace as separator as all isspace characters, not just
-   * the whitespace (ASCII 32) itself.
-   */
-  const char *parse(const char *ptr, char sep)
-  {
-    if (sep == 32)
-      return parse_space_sep(ptr);
-    else
-      return parse_sep(ptr, sep);
-  }
-};
-
-/*
- * Returns the number of successfully parsed tokens.
- *
- * e.g. if parse_line2([:field_a]) return 0, it means that it could not parse
- * the first token successfully. If it returns 1 (== field_arr.size()), then it
- * could exactly parse all tokens. If it returns 2 (== field_arr.size+1), it
- * could parse all tokens successfully, but there is more input available.
- */
 static
-int parse_line2(RecordModelInstance *self, const char *str, const std::vector<int> &field_arr, char sep, int &err)
+void conv_field_arr(VALUE arr, int *field_arr, int field_arr_sz)
 {
-  Token token;
-  const char *next = str;
-  err = RM_ERR_OK;
+  assert(RARRAY_LEN(arr) == field_arr_sz);
 
-  size_t i;
-  for (i=0; i < field_arr.size(); ++i)
+  for (int i=0; i < field_arr_sz; ++i)
   {
-    err = RM_ERR_OK;
+    VALUE e = RARRAY_PTR(arr)[i];
 
-    next = token.parse(next, sep);
-    if (token.empty())
-      return i; // premature end
-
-    if (field_arr[i] < 0)
-      continue;
-
-    RM_Type *field = self->model->get_field(field_arr[i]);
-    assert(field);
-    err = field->set_from_string(self->ptr(), token.beg, token.end);
-    if (err)
-    {
-      return i;
-    }
+    if (NIL_P(e))
+      field_arr[i] = -1;
+    else
+      field_arr[i] = (int)FIX2UINT(e);
   }
-
-  next = token.parse(next, sep);
-  if (token.empty())
-    return i; // means, OK
-  else
-    return i+1; // means, has additional items
 }
 
 static
 int parse_line(RecordModelInstance *self, const char *str, VALUE _field_arr, char sep, int &err)
 {
-  Token token;
-  const char *next = str;
-  err = RM_ERR_OK;
+  int sarr[20];
+  int arr_sz;
+  int *arr = sarr;
 
-  size_t i;
-  for (i=0; i < RARRAY_LEN(_field_arr); ++i)
+  arr_sz = RARRAY_LEN(_field_arr);
+  if (arr_sz > 20)
   {
-    err = RM_ERR_OK;
-    VALUE e = RARRAY_PTR(_field_arr)[i];
-
-    next = token.parse(next, sep);
-    if (token.empty())
-      return i; // premature end
-
-    if (NIL_P(e))
-      continue;
-
-    RM_Type *field = self->model->get_field(FIX2UINT(e));
-    assert(field);
-    err = field->set_from_string(self->ptr(), token.beg, token.end);
-    if (err)
-    {
-      return i;
-    }
+    arr = new int[arr_sz];
   }
 
-  next = token.parse(next, sep);
-  if (token.empty())
-    return i; // means, OK
-  else
-    return i+1; // means, has additional items
+  conv_field_arr(_field_arr, arr, arr_sz);
+  
+  int res = self->parse_line(str, arr, arr_sz, sep, err);
+
+  if (arr_sz > 20)
+  {
+    delete []arr;
+  }
+
+  return res;
 }
 
 /*
@@ -827,7 +724,8 @@ struct Params
 {
   RecordModelInstanceArray *self;
   RecordModelInstance *rec;
-  std::vector<int> field_arr;
+  int *field_arr;
+  int field_arr_sz;
   VALUE _rec;
   size_t lines_read; 
   char *buf;
@@ -877,7 +775,7 @@ VALUE bulk_parse_line(void *ptr)
 
     p->rec->zero();
 
-    p->num_tokens = parse_line2(p->rec, p->buf, p->field_arr, p->sep, p->parse_error);
+    p->num_tokens = p->rec->parse_line(p->buf, p->field_arr, p->field_arr_sz, p->sep, p->parse_error);
     if (p->parse_error)
     {
       // We either reject item for which a parse error occured, or we have 
@@ -930,15 +828,10 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
 
   p.sep = RSTRING_PTR(_sep)[0];
 
-  for (int i=0; i < RARRAY_LEN(_field_arr); ++i)
-  {
-    VALUE e = RARRAY_PTR(_field_arr)[i];
+  p.field_arr_sz = RARRAY_LEN(_field_arr); 
+  p.field_arr = new int[p.field_arr_sz];
 
-    if (NIL_P(e))
-      continue;
-
-    p.field_arr.push_back((int)FIX2UINT(e));
-  }
+  conv_field_arr(_field_arr, p.field_arr, p.field_arr_sz);
 
   p.lines_read = 0;
   p.buf = NULL;
@@ -952,18 +845,21 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
   p.fh = fdopen(dup(NUM2INT(io_int)), "r");
   if (!p.fh)
   {
+    delete [] p.field_arr;
     rb_raise(rb_eRuntimeError, "Failed to open file");
   }
 
   p.buf = (char*)malloc(p.bufsz);
   if (!p.buf)
   {
+    delete [] p.field_arr;
     fclose(p.fh);
     rb_raise(rb_eRuntimeError, "Not enough memory");
   }
 
   VALUE res = rb_thread_blocking_region(bulk_parse_line, &p, NULL, NULL);
 
+  delete [] p.field_arr;
   fclose(p.fh);
   free(p.buf);
 

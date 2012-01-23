@@ -9,6 +9,7 @@
 #include <vector>    // std::vector
 #include <algorithm> // std::sort
 #include "RM_Types.h"
+#include "RM_Token.h"
 
 struct RecordModel
 {
@@ -236,6 +237,50 @@ struct RecordModelInstance
     assert(other->model == model);
     return compare_keys_ptr(model, ptr(), other->ptr());
   }
+
+  /*
+   * Parses a line "str" separated by "sep" and stores each value into the corresponding field_arr item (index into fields).
+   *
+   * Returns the number of successfully parsed tokens.
+   *
+   * For example if it returns 0, it means that it could not parse the first token successfully.
+   * If it returns field_arr_sz, then it could parse all tokens successfully. If it retunrns field_arr_sz+1, then
+   * it could parse all tokens successfully, but there is more input available.
+   */
+  int parse_line(const char *str, const int *field_arr, int field_arr_sz, char sep, int &err)
+  {
+    RM_Token token;
+    const char *next = str;
+    err = RM_ERR_OK;
+
+    int i;
+    for (i=0; i < field_arr_sz; ++i)
+    {
+      err = RM_ERR_OK;
+
+      next = token.parse(next, sep);
+      if (token.empty())
+	return i; // premature end
+
+      if (field_arr[i] < 0)
+	continue;
+
+      RM_Type *field = this->model->get_field(field_arr[i]);
+      assert(field);
+      err = field->set_from_string(this->ptr(), token.beg, token.end);
+      if (err)
+      {
+	return i;
+      }
+    }
+
+    next = token.parse(next, sep);
+    if (token.empty())
+      return field_arr_sz; // means, OK
+    else
+      return field_arr_sz+1; // means, has additional items
+  }
+  
 };
 
 struct RecordModelInstanceArraySorter
