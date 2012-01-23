@@ -15,7 +15,7 @@ class TestMMDB < Test::Unit::TestCase
       r.key :c, :uint32
       r.key :d, :uint64
       r.val :e, :double
-      r.val :f, :hexstr, 16
+      r.val :f, :hexstr, :size => 16
       r.key :g, :timestamp
     end
   end
