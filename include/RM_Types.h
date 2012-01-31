@@ -105,6 +105,11 @@ struct RM_Conversion
     return v;
   }
 
+  static double str_to_double(const char *str)
+  {
+    return atof(str);
+  }
+
   static double str_to_double2(const char *s, const char *e, int &err)
   {
     double v = 0.0;    
