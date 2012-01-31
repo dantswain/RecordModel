@@ -7,7 +7,7 @@
 #include <assert.h>  // assert
 #include <limits>    // std::numeric_limits
 #include <stdlib.h>  // atof
-#include <endian.h>  // htobe64
+#include <endian.h>  // htole64
 #include "ruby.h"    // Ruby
 
 #define RM_ERR_OK 0
@@ -87,9 +87,10 @@ struct RM_Conversion
   }
 
   // str has to point to at least sizeof(val)+1 bytes
+  // returns the converted string in 'str'.
   static void int_encoded_str(uint64_t val, char *str)
   {
-    //val = htobe64(val);
+    val = htole64(val);
     const unsigned char *p = (const unsigned char*)&val;
     int i = 7;
     while (i >= 0 && p[i] == 0) --i; // skip leading "zeros"
