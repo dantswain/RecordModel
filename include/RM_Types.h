@@ -8,6 +8,7 @@
 #include <limits>    // std::numeric_limits
 #include <stdlib.h>  // atof
 #include <endian.h>  // htole64
+#include <math.h>    // pow
 #include "ruby.h"    // Ruby
 
 #define RM_ERR_OK 0
@@ -35,6 +36,7 @@ struct RM_Conversion
       else
       {
         err = RM_ERR_INT_INV; // invalid 
+        return 0;
       }
     }
     return v;
@@ -65,11 +67,13 @@ struct RM_Conversion
         else
         {
           err = RM_ERR_INT_INV; // invalid (duplicate ".")
+          return 0;
         }
       }
       else
       {
         err = RM_ERR_INT_INV; // invalid character
+        return 0;
       }
     }
 
@@ -83,6 +87,88 @@ struct RM_Conversion
       v /= 10;
     }
  
+    return v;
+  }
+
+  // XXX: remove char* cast and string modification!
+  static double str_to_double(const char *s, const char *e)
+  {
+    return str_to_double2((char*)s, (char*)e);
+  }
+
+  static double str_to_double2(char *s, char *e)
+  {
+    char c = *e;
+    *e = '\0';
+    double v = atof(s);
+    *e = c;
+    return v;
+  }
+
+  static double str_to_double2(const char *s, const char *e, int &err)
+  {
+    double v = 0.0;    
+    err = RM_ERR_OK;
+
+    bool positive = true;
+    // parse sign
+    for (; s != e; ++s)
+    {
+      char c = *s;
+      if (c == '-')
+      {
+        positive = !positive;
+      }
+      else if (c == '+')
+      {
+        // just skip it
+      }
+      else
+      {
+        break;
+      }
+    }
+      
+    int exp = -1;
+    for (; s != e; ++s)
+    {
+      char c = *s;
+      if (c >= '0' && c <= '9')
+      {
+        v *= 10.0;
+        v += (int)(c-'0');
+        if (exp >= 0)
+          ++exp;
+      }
+      else if (c == '.')
+      {
+        if (exp < 0)
+        {
+          exp = 0;
+        }
+        else
+        {
+          err = RM_ERR_INT_INV; // invalid (duplicate ".")
+          return 0.0;
+        }
+      }
+      else
+      {
+        err = RM_ERR_INT_INV; // invalid character
+        return 0.0;
+      }
+    }
+
+    if (exp > 0)
+    {
+      v /= pow(10, exp);
+    }
+
+    if (!positive)
+    {
+      v *= -1.0;
+    }
+
     return v;
   }
 
@@ -104,6 +190,7 @@ struct RM_Conversion
     } 
     *str = '\0';
   }
+
 };
 
 struct RM_Type
@@ -352,19 +439,9 @@ struct RM_DOUBLE : RM_Type
     return RM_ERR_OK;
   }
 
-  // XXX: remove char* cast and string modification!
-  static double conv_str_to_double(const char *s, const char *e)
-  {
-    char c = *e;
-    *((char*)e) = '\0';
-    double v = atof(s);
-    *((char*)e) = c;
-    return v;
-  }
-
   virtual int set_from_string(void *a, const char *s, const char *e)
   {
-    element(a) = conv_str_to_double(s, e);
+    element(a) = RM_Conversion::str_to_double(s, e);
     return RM_ERR_OK;
   }
 
