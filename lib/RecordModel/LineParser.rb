@@ -196,6 +196,7 @@ class RecordModel::FastLineParser
     # The array we are currently putting items in
     @current_arr = nil
 
+    @inserter = inserter
     @inserter.set_queues(@work_q, @free_q)
   end
 
