@@ -196,6 +196,29 @@ struct RM_Conversion
     *str = '\0';
   }
 
+  static char to_hex_digit(uint8_t v)
+  {
+    if (/*v >= 0 && */v <= 9) return '0' + v;
+    if (v >= 10 && v <= 15) return 'A' + v - 10;
+    return '#';
+  }
+
+  static int from_hex_digit(char c)
+  {
+    if (c >= '0' && c <= '9') return c-'0';
+    if (c >= 'a' && c <= 'f') return c-'a'+10;
+    if (c >= 'A' && c <= 'F') return c-'A'+10;
+    return -1;
+  }
+
+  static int from_hex_byte(char c0, char c1)
+  {
+    int b0 = from_hex_digit(c0);
+    int b1 = from_hex_digit(c1);
+    if (b0 < 0 || b1 < 0) return -1;
+    return (b0 << 4) | b1;
+  }
+
 };
 
 struct RM_Type
@@ -644,21 +667,6 @@ struct RM_HEXSTR : RM_String
 {
   RM_HEXSTR(uint8_t size) : RM_String(size) {}
 
-  char to_hex_digit(uint8_t v)
-  {
-    if (/*v >= 0 && */v <= 9) return '0' + v;
-    if (v >= 10 && v <= 15) return 'A' + v - 10;
-    return '#';
-  }
-
-  int from_hex_digit(char c)
-  {
-    if (c >= '0' && c <= '9') return c-'0';
-    if (c >= 'a' && c <= 'f') return c-'a'+10;
-    if (c >= 'A' && c <= 'F') return c-'A'+10;
-    return -1;
-  }
-
   int parse_hexstring(uint8_t *v, int strlen, const char *str)
   {
     const int max_sz = 2*size();
@@ -673,7 +681,7 @@ struct RM_HEXSTR : RM_String
 
     for (int i = 0; i < strlen; ++i)
     {
-      int digit = from_hex_digit(str[i]);
+      int digit = RM_Conversion::from_hex_digit(str[i]);
       if (digit < 0)
       {
         // invalid hex digit at str[i]
@@ -694,8 +702,8 @@ struct RM_HEXSTR : RM_String
     cbuf[2] = 0;
     for (int i = 0; i < size(); ++i)
     {
-      cbuf[0] = to_hex_digit((ptr[i]) >> 4);
-      cbuf[1] = to_hex_digit((ptr[i]) & 0x0F);
+      cbuf[0] = RM_Conversion::to_hex_digit((ptr[i]) >> 4);
+      cbuf[1] = RM_Conversion::to_hex_digit((ptr[i]) & 0x0F);
       rb_str_buf_cat_ascii(strbuf, cbuf);
     }
     return strbuf;
