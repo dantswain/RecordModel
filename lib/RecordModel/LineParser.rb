@@ -247,7 +247,7 @@ class RecordModel::FastLineParser
       more, lines = @current_arr.bulk_parse_line(@item, io.to_i, @line_parse_descr, @sep, max_line_len, 
         @reject_token_parse_error, @reject_invalid_num_tokens, @valid_token_range.first, @valid_token_range.last, &block)
 
-      lines_ok += (current_arr.size - before)
+      lines_ok += (@current_arr.size - before)
       lines_read += lines
       break unless more
 
