@@ -247,16 +247,21 @@ class RecordModel::FastLineParser
       lines_read += lread
       break unless more
 
-      if @current_arr.full?
-        @work_q << @current_arr
-        @current_arr = @free_q.pop
-      end
+      push_work(nil)
     end
 
     return lines_read, lines_ok 
   end
 
   protected
+
+  def push_work(item=nil)
+    if @current_arr.full?
+      @work_q << @current_arr
+      @current_arr = @free_q.pop
+    end
+    @current_arr << item if item
+  end
 
   def parse(io, max_line_len, &block)
     before = @current_arr.size
