@@ -237,14 +237,15 @@ class RecordModel::FastLineParser
     lines_ok = 0
     lines_read = 0
 
-    if @current_arr.nil?
-      @current_arr = @free_q.pop
-    end
+    init_work()
 
     loop do
-      lok, lread, more = parse(io, max_line_len, &block)
-      lines_ok += lok
-      lines_read += lread
+      before = @current_arr.size
+      more, lines = @current_arr.bulk_parse_line(@item, io.to_i, @line_parse_descr, @sep, max_line_len, 
+        @reject_token_parse_error, @reject_invalid_num_tokens, @valid_token_range.first, @valid_token_range.last, &block)
+
+      lines_ok += (current_arr.size - before)
+      lines_read += lines
       break unless more
 
       push_work(nil)
@@ -255,20 +256,17 @@ class RecordModel::FastLineParser
 
   protected
 
+  def init_work
+    if @current_arr.nil?
+      @current_arr = @free_q.pop
+    end
+  end
+
   def push_work(item=nil)
     if @current_arr.full?
       @work_q << @current_arr
       @current_arr = @free_q.pop
     end
     @current_arr << item if item
-  end
-
-  def parse(io, max_line_len, &block)
-    before = @current_arr.size
-    more, lines = @current_arr.bulk_parse_line(@item, io.to_i, @line_parse_descr, @sep, max_line_len, 
-      @reject_token_parse_error, @reject_invalid_num_tokens, @valid_token_range.first, @valid_token_range.last, &block)
-
-    # [lines_ok, lines_read, more]
-    return [@current_arr.size - before, lines, more]
   end
 end
