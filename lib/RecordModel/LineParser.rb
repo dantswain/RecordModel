@@ -133,17 +133,60 @@ class RecordModel::LineParser
   end
 end
 
+class RecordModel::DbBackgroundInserter
+  def initialize(db, work_q, free_q)
+    @db, @work_q, @free_q = db, work_q, free_q
+    @thread = nil
+  end
+
+  def start
+    raise if @thread
+    @thread = Thread.new { run() }
+  end
+
+  def stop
+    raise unless @thread
+    @thread.join
+    @thread = nil
+  end
+
+  protected
+
+  def run
+    loop do
+      packet = @work_q.pop
+      break if packet == :end
+      store_packet(packet)
+      packet.reset
+      @free_q << packet
+    end
+  end
+
+  def store_packet(packet)
+    begin
+      @db.put_bulk(packet)
+    rescue
+      p $!
+    end
+  end
+end
+
 class RecordModel::FastLineParser
 
-  def initialize(db, item_class, line_parse_descr, sep=' ', array_sz=2**22, reject_token_parse_error=true, reject_invalid_num_tokens=true, valid_token_range=nil)
-    @db = db
+  def initialize_parser(h)
+    @line_parse_descr = h[:line_parse_descr] || (raise ArgumentError)
+    @sep = h[:sep] || ' '
+    @reject_token_parse_error = h[:reject_token_parse_error] || true
+    @reject_invalid_num_tokens = h[:reject_invalid_num_tokens] || true
+    @valid_token_range = h[:valid_token_range] || (@line_parse_descr.size .. -1) 
+  end
+
+  def initialize(db, item_class, parser_hash={}, inserter_class=RecordModel::DbBackgroundInserter, array_sz=2**22)
+    initialize_parser(parser_hash)
+    @inserter = inserter_class.new(db, @work_q, @free_q)
+
     @item_class = item_class
     @item = @item_class.new
-    @line_parse_descr = line_parse_descr
-    @sep = sep
-    @reject_token_parse_error = reject_token_parse_error
-    @reject_invalid_num_tokens = reject_invalid_num_tokens
-    @valid_token_range = valid_token_range || (line_parse_descr .. -1) 
 
     @work_q = Queue.new
     @free_q = Queue.new
@@ -158,8 +201,7 @@ class RecordModel::FastLineParser
   def start
     raise unless @free_q.size == 2
     raise unless @work_q.size == 0
-    raise if @thread
-    @thread = start_db_thread(@work_q, @free_q) 
+    @inserter.start
   end
 
   def stop
@@ -168,8 +210,8 @@ class RecordModel::FastLineParser
       @current_arr = nil
     end
     @work_q << :end
-    @thread.join
-    @thread = nil
+
+    @inserter.stop
   end
 
   def with
@@ -190,11 +232,9 @@ class RecordModel::FastLineParser
     end
 
     loop do
-      before = @current_arr.size
-      more, lines = @current_arr.bulk_parse_line(@item, io.to_i, @line_parse_descr, @sep, max_line_len, 
-        @reject_token_parse_error, @reject_invalid_num_tokens, @valid_token_range.first, @valid_token_range.last, &block)
-      lines_read += lines
-      lines_ok += (@current_arr.size - before)
+      lok, lread, more = parse(io, max_line_len, &block)
+      lines_ok += lok
+      lines_read += lread
       break unless more
 
       if @current_arr.full?
@@ -208,23 +248,12 @@ class RecordModel::FastLineParser
 
   protected
 
-  def store_packet(packet)
-    begin
-      @db.put_bulk(packet)
-    rescue
-      p $!
-    end
-  end
+  def parse(io, max_line_len, &block)
+    before = @current_arr.size
+    more, lines = @current_arr.bulk_parse_line(@item, io.to_i, @line_parse_descr, @sep, max_line_len, 
+      @reject_token_parse_error, @reject_invalid_num_tokens, @valid_token_range.first, @valid_token_range.last, &block)
 
-  def start_db_thread(work_q, free_q)
-    Thread.new {
-      loop do
-        packet = work_q.pop
-        break if packet == :end
-        store_packet(packet)
-        packet.reset
-        free_q << packet
-      end
-    }
+    # [lines_ok, lines_read, more]
+    return [@current_arr.size - before, lines, more]
   end
 end
