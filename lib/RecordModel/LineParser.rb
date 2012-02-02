@@ -200,7 +200,9 @@ class RecordModel::FastLineParser
   end
 
   def initialize_parser(h)
-    raise ArgumentError unless (h.keys - [:line_parse_descr, :reject_token_parse_error, :reject_invalid_num_tokens, :valid_token_range]).empty?
+    unless (h.keys - [:line_parse_descr, :reject_token_parse_error, :reject_invalid_num_tokens, :valid_token_range]).empty?
+      raise ArgumentError, "wrong keys specified"
+    end
     @line_parse_descr = h[:line_parse_descr] || (raise ArgumentError)
     @sep = h[:sep] || ' '
     @reject_token_parse_error = h[:reject_token_parse_error] || true
