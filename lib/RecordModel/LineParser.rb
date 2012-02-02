@@ -134,9 +134,13 @@ class RecordModel::LineParser
 end
 
 class RecordModel::DbBackgroundInserter
-  def initialize(db, work_q, free_q)
-    @db, @work_q, @free_q = db, work_q, free_q
+  def initialize(db)
+    @db = db
     @thread = nil
+  end
+
+  def set_queues(work_q, free_q)
+    @work_q, @free_q = work_q, free_q
   end
 
   def start
@@ -162,8 +166,12 @@ class RecordModel::DbBackgroundInserter
     end
   end
 
+  def fixup_packet(packet)
+  end
+
   def store_packet(packet)
     begin
+      fixup_packet(packet)
       @db.put_bulk(packet)
     rescue
       p $!
@@ -173,18 +181,8 @@ end
 
 class RecordModel::FastLineParser
 
-  def initialize_parser(h)
-    raise ArgumentError unless (h.keys - [:line_parse_descr, :reject_token_parse_error, :reject_invalid_num_tokens, :valid_token_range]).empty?
-    @line_parse_descr = h[:line_parse_descr] || (raise ArgumentError)
-    @sep = h[:sep] || ' '
-    @reject_token_parse_error = h[:reject_token_parse_error] || true
-    @reject_invalid_num_tokens = h[:reject_invalid_num_tokens] || true
-    @valid_token_range = h[:valid_token_range] || (@line_parse_descr.size .. -1) 
-  end
-
-  def initialize(db, item_class, parser_hash={}, inserter_class=RecordModel::DbBackgroundInserter, array_sz=2**22)
+  def initialize(inserter, item_class, parser_hash={}, array_sz=2**22)
     initialize_parser(parser_hash)
-    @inserter = inserter_class.new(db, @work_q, @free_q)
 
     @item_class = item_class
     @item = @item_class.new
@@ -197,6 +195,17 @@ class RecordModel::FastLineParser
 
     # The array we are currently putting items in
     @current_arr = nil
+
+    @inserter.set_queues(@work_q, @free_q)
+  end
+
+  def initialize_parser(h)
+    raise ArgumentError unless (h.keys - [:line_parse_descr, :reject_token_parse_error, :reject_invalid_num_tokens, :valid_token_range]).empty?
+    @line_parse_descr = h[:line_parse_descr] || (raise ArgumentError)
+    @sep = h[:sep] || ' '
+    @reject_token_parse_error = h[:reject_token_parse_error] || true
+    @reject_invalid_num_tokens = h[:reject_invalid_num_tokens] || true
+    @valid_token_range = h[:valid_token_range] || (@line_parse_descr.size .. -1) 
   end
 
   def start
