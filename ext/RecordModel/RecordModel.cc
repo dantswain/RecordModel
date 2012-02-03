@@ -860,6 +860,10 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
   VALUE res = rb_thread_blocking_region(bulk_parse_line, &p, NULL, NULL);
 
   delete [] p.field_arr;
+
+  // before closing update Ruby IO pointer
+  lseek(NUM2INT(io_int), ftell(p.fh), SEEK_SET);
+
   fclose(p.fh);
   free(p.buf);
 
