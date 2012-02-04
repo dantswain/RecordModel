@@ -58,6 +58,10 @@ module MMDB
     def query_min(from, to, item)
       @db.query_min(from, to, item, @snapshot)
     end
+
+    def query_count(from, to)
+      @db.query_count(from, to, @snapshot)
+    end
   end
 
 end # module MMDB

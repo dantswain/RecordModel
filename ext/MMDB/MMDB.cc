@@ -577,7 +577,31 @@ public:
       return false;
     }
   }
-  
+
+  struct count_iter_data
+  {
+    size_t count;
+  };
+
+  static int count_iter(RecordModelInstance *current, void *_data)
+  {
+    count_iter_data *data = (count_iter_data*)_data;
+    ++data->count;
+    return ITER_CONTINUE;
+  }
+ 
+  /*
+   * Returns the number of matching records.
+   */
+  size_t query_count(size_t slices, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
+             RecordModelInstance *current)
+  {
+    count_iter_data data;
+    data.count = 0;
+    query_all(slices, range_from, range_to, current, count_iter, &data);
+    return data.count;
+  }
+
 };
 
 static
@@ -717,6 +741,7 @@ struct Params_query_into
   RecordModelInstance *current;
   RecordModelInstanceArray *arr;
   size_t snapshot;
+  size_t count; // to return value for query_count
 };
 
 static
@@ -794,6 +819,39 @@ VALUE MMDB_query_min(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE _
   return Qnil;
 }
 
+static
+VALUE query_count(void *a)
+{
+  Params_query_into *p = (Params_query_into*)a;
+  p->count = p->db->query_count(p->snapshot, p->from, p->to, p->current);
+  return Qnil;
+}
+
+/*
+ * Returns the number of matching records.
+ */
+static
+VALUE MMDB_query_count(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE _snapshot)
+{
+  Params_query_into p;
+  Data_Get_Struct(self, MMDB, p.db);
+
+  p.from = get_RecordModelInstance(_from);
+  p.to = get_RecordModelInstance(_to);
+  p.current = get_RecordModelInstance(_current);
+
+  assert(p.from->model == p.to->model);
+  assert(p.from->model == p.current->model);
+  assert(p.from->model == p.db->model);
+
+  p.snapshot = NUM2ULONG(_snapshot);
+  p.count = 0;
+  rb_thread_blocking_region(query_count, &p, NULL, NULL);
+
+  return ULONG2NUM(p.count);
+}
+
+
 /*
  * TODO: in background
  */
@@ -837,6 +895,7 @@ void Init_RecordModelMMDBExt()
   rb_define_method(cMMDB, "query_each", (VALUE (*)(...)) MMDB_query_each, 4);
   rb_define_method(cMMDB, "query_into", (VALUE (*)(...)) MMDB_query_into, 5);
   rb_define_method(cMMDB, "query_min", (VALUE (*)(...)) MMDB_query_min, 4);
+  rb_define_method(cMMDB, "query_count", (VALUE (*)(...)) MMDB_query_count, 4);
   rb_define_method(cMMDB, "commit", (VALUE (*)(...)) MMDB_commit, 0);
   rb_define_method(cMMDB, "get_snapshot_num", (VALUE (*)(...)) MMDB_get_snapshot_num, 0);
 }
