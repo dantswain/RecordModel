@@ -7,11 +7,12 @@ class MMDB::CommitLog
     @filename = filename
   end
 
-  def all(n)
+  def all(n=nil)
     arr =
     if File.exist?(@filename)
       sz = File.size(@filename)
       raise "Invalid file size" if sz % BLKSIZE != 0
+      n = sz / BLKSIZE unless n 
       if sz == 0
         []
       else
@@ -20,7 +21,7 @@ class MMDB::CommitLog
         }
       end
     else
-      []
+      return []
     end
     raise if arr.size != n
     raise if arr.any? {|i| i.size != BLKSIZE}
