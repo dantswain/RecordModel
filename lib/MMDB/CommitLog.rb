@@ -21,7 +21,8 @@ class MMDB::CommitLog
         }
       end
     else
-      return []
+      n ||= 0
+      []
     end
     raise if arr.size != n
     raise if arr.any? {|i| i.size != BLKSIZE}
