@@ -24,8 +24,9 @@ class RecordModel::Query
   end
 
   def count
+    item = @klass.new
     cnt = 0
-    @ranges.each {|from, to| cnt += @db.query_count(from, to)}
+    @ranges.each {|from, to| cnt += @db.query_count(from, to, item)}
     cnt
   end
 
