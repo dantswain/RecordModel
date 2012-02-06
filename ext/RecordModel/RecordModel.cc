@@ -913,7 +913,7 @@ VALUE bulk_parse_line(void *ptr)
 }
 
 static
-VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE reader, VALUE _field_arr, VALUE _sep, VALUE _bufsz,
+VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE _reader, VALUE _field_arr, VALUE _sep, VALUE _bufsz,
   VALUE _reject_token_parse_error, VALUE _reject_invalid_num_tokens, VALUE _min_num_tokens, VALUE _max_num_tokens)
 {
   Params p;
@@ -924,6 +924,8 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE re
   Check_Type(_field_arr, T_ARRAY);
   Check_Type(_sep, T_STRING);
   validate_field_arr(p.self->model, _field_arr);
+
+  AutoFileReader *reader = get_AutoFileReader(_reader);
 
   if (RSTRING_LEN(_sep) != 1)
     rb_raise(rb_eArgError, "Single character string expected");
@@ -949,7 +951,7 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE re
     rb_raise(rb_eRuntimeError, "Not enough memory");
   }
 
-  LineReader lr(get_AutoFileReader(reader), buf, bufsz);
+  LineReader lr(reader, buf, bufsz);
   p.linereader = &lr;
 
   VALUE res = rb_thread_blocking_region(bulk_parse_line, &p, NULL, NULL);
