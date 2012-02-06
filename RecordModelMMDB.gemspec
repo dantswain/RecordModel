@@ -5,7 +5,7 @@ spec = Gem::Specification.new do |s|
   s.author = 'Michael Neumann'
   s.license = 'BSD License'
   s.files = ['README', 'RecordModelMMDB.gemspec',
-             'include/RecordModel.h', 'include/RM_Types.h', 'include/RM_Token.h',
+             'include/RecordModel.h', 'include/RM_Types.h', 'include/RM_Token.h', 'include/LineReader.h',
              'lib/MMDB/DB.rb', 'lib/MMDB/DBMS.rb',
              'lib/MMDB/CommitLog.rb',
              'ext/MMDB/MMDB.cc', 'ext/MMDB/MmapFile.h',

@@ -487,6 +487,36 @@ private:
     return ITER_CONTINUE; // continue with next slice
   }
 
+  int query_linear(uint64_t idx_from, uint64_t idx_to, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
+            RecordModelInstance *current,
+            int (*iterator)(RecordModelInstance*, void*), void *data)
+  {
+    assert(idx_from <= idx_to);
+
+    for (uint64_t cursor = idx_from; cursor <= idx_to; ++cursor)
+    {
+      copy_keys_in(current, cursor);
+     
+      int keypos;
+      int cmp = current->keys_in_range_pos(range_from, range_to, keypos);
+      if (cmp == 0)
+      {
+        /*
+         * all keys are within [range_from, range_to]
+         */
+        copy_values_in(current, cursor);
+
+        int iter = iterator(current, data);
+        if (iter != ITER_CONTINUE)
+        {
+          return iter;
+        }
+      }
+    }
+
+    return ITER_CONTINUE; // continue with next slice
+  }
+
 
 public:
 
@@ -522,6 +552,8 @@ public:
       iter = query(offs, offs+length-1, range_from, range_to, current, iterator, data);
       if (iter == ITER_STOP)
         break;
+
+      offs += length;
     }
 
     err = pthread_rwlock_unlock(&rwlock);

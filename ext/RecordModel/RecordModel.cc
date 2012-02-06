@@ -1,9 +1,8 @@
 #include "../../include/RecordModel.h"
+#include "../../include/LineReader.h"
 #include <assert.h> // assert
 #include <strings.h> // bzero
 #include <algorithm> // std::max
-#include <unistd.h> // dup()
-#include <stdio.h> // feof, fgets, fdopen, fclose
 #include "ruby.h"
 
 /*
@@ -728,9 +727,11 @@ struct Params
   int field_arr_sz;
   VALUE _rec;
   size_t lines_read; 
+
+  LineReader *linereader;
   char *buf;
   size_t bufsz;
-  FILE *fh;
+  int fd;
 
   int parse_error;
   int num_tokens;
@@ -760,6 +761,7 @@ static
 VALUE bulk_parse_line(void *ptr)
 {
   Params *p = (Params*)ptr;
+  char *line = NULL;
 
   while (true)
   {
@@ -767,7 +769,8 @@ VALUE bulk_parse_line(void *ptr)
     {
       return Qtrue;
     }
-    if (!fgets(p->buf, p->bufsz, p->fh))
+    line = p->linereader->readline();
+    if (!line)
     {
       return Qfalse;
     }
@@ -775,7 +778,7 @@ VALUE bulk_parse_line(void *ptr)
 
     p->rec->zero();
 
-    p->num_tokens = p->rec->parse_line(p->buf, p->field_arr, p->field_arr_sz, p->sep, p->parse_error);
+    p->num_tokens = p->rec->parse_line(line, p->field_arr, p->field_arr_sz, p->sep, p->parse_error);
     if (p->parse_error)
     {
       // We either reject item for which a parse error occured, or we have 
@@ -834,38 +837,26 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
   conv_field_arr(_field_arr, p.field_arr, p.field_arr_sz);
 
   p.lines_read = 0;
-  p.buf = NULL;
-  p.bufsz = NUM2INT(_bufsz); 
-  p.fh = NULL;
   p.reject_token_parse_error = RTEST(_reject_token_parse_error);
   p.reject_invalid_num_tokens = RTEST(_reject_invalid_num_tokens);
   p.min_num_tokens = NUM2INT(_min_num_tokens);
   p.max_num_tokens = NUM2INT(_max_num_tokens);
 
-  p.fh = fdopen(dup(NUM2INT(io_int)), "r");
-  if (!p.fh)
+  size_t bufsz = NUM2INT(_bufsz);
+  char *buf = (char*)malloc(bufsz);
+  if (!buf)
   {
     delete [] p.field_arr;
-    rb_raise(rb_eRuntimeError, "Failed to open file");
-  }
-
-  p.buf = (char*)malloc(p.bufsz);
-  if (!p.buf)
-  {
-    delete [] p.field_arr;
-    fclose(p.fh);
     rb_raise(rb_eRuntimeError, "Not enough memory");
   }
+
+  LineReader lr(NUM2INT(io_int), buf, bufsz);
+  p.linereader = &lr;
 
   VALUE res = rb_thread_blocking_region(bulk_parse_line, &p, NULL, NULL);
 
   delete [] p.field_arr;
-
-  // before closing update Ruby IO pointer
-  lseek(NUM2INT(io_int), ftell(p.fh), SEEK_SET);
-
-  fclose(p.fh);
-  free(p.buf);
+  free(buf);
 
   return rb_ary_new3(2, res, ULONG2NUM(p.lines_read));
 }

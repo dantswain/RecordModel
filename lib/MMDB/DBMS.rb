@@ -56,9 +56,9 @@ module MMDB
       end
     end
 
-    def put_bulk(dbid, *args, &block)
+    def put_bulk(dbid, arr)
       raise ArgumentError if @readonly
-      get_db(dbid).put_bulk(*args, &block)
+      get_db(dbid).put_bulk(arr)
     end
 
     def query(dbid, *args, &block)
