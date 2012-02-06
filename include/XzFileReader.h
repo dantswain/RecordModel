@@ -76,7 +76,7 @@ class XzFileReader : public FileReader
     {
       assert(file);
 
-      while (stream.avail_in == 0)
+      do 
       {
 	if (!is_eof && stream.avail_in == 0)
 	{
@@ -101,7 +101,9 @@ class XzFileReader : public FileReader
 
 	lzma_ret ret = lzma_code(&stream, is_eof ? LZMA_FINISH : LZMA_RUN);
 	if (ret != LZMA_OK && ret != LZMA_STREAM_END)
+	{
 	  return -1; // error
+        }
 
         ssize_t len = buflen - stream.avail_out;
         if (len > 0 || is_eof)
@@ -116,7 +118,9 @@ class XzFileReader : public FileReader
         // nothing in output buffer. put something back again into
 	// the input buffer -> fall through to while-loop
 
-      } /* while */
+      } while (stream.avail_in == 0);
+
+      assert(false);
     }
 };
 
