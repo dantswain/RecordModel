@@ -3,12 +3,11 @@ require 'RecordModelExt'
 class AutoFileReader
   def self.open(path, buflen=2**16, &block)
     obj = _open(path, buflen)
-    raise unless obj
     if block
       begin
         block.call(obj)
       ensure
-        obj.close
+        obj.close if obj
       end
       return nil
     else
