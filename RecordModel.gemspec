@@ -5,7 +5,10 @@ spec = Gem::Specification.new do |s|
   s.author = 'Michael Neumann'
   s.license = 'BSD License'
   s.files = ['README', 'RecordModel.gemspec',
-             'include/RecordModel.h', 'include/RM_Types.h', 'include/RM_Token.h', 'include/LineReader.h',
+             'include/RecordModel.h', 'include/RM_Types.h', 'include/RM_Token.h', 
+	     'include/LineReader.h', 
+	     'include/FileReader.h', 'include/FdFileReader.h',
+	     'include/PosixFileReader.h', 'include/GzipFileReader.h',
              'lib/RecordModel/RecordModel.rb', 'lib/RecordModel/Query.rb',
              'lib/RecordModel/LineParser.rb',
              'ext/RecordModel/RecordModel.cc',

@@ -1,7 +1,7 @@
 #ifndef __LINEREADER__HEADER__
 #define __LINEREADER__HEADER__
 
-#include <unistd.h>
+#include "FileReader.h"
 
 struct LineReader
 {
@@ -9,12 +9,12 @@ struct LineReader
   size_t bufsz;
   size_t buflen;
   size_t bufoffs;
-  int fd;
+  FileReader *reader;
   bool fd_is_eof;
 
-  LineReader(int fd, char *buf, size_t bufsz)
+  LineReader(FileReader *reader, char *buf, size_t bufsz)
   {
-    this->fd = fd;
+    this->reader = reader;
     this->fd_is_eof = false;
     this->buf = buf;
     this->bufsz = bufsz;
@@ -59,7 +59,7 @@ struct LineReader
       if (max_read > 0) 
       {
         // read into buffer
-        ssize_t nread = read(fd, &beg[buflen], max_read);
+        ssize_t nread = reader->read(&beg[buflen], max_read);
         if (nread < 0) return NULL; //  // error
         if (nread == 0)
         {

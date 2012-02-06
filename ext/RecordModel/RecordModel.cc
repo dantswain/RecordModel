@@ -1,5 +1,6 @@
 #include "../../include/RecordModel.h"
 #include "../../include/LineReader.h"
+#include "../../include/FdFileReader.h"
 #include <assert.h> // assert
 #include <strings.h> // bzero
 #include <algorithm> // std::max
@@ -850,7 +851,10 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
     rb_raise(rb_eRuntimeError, "Not enough memory");
   }
 
-  LineReader lr(NUM2INT(io_int), buf, bufsz);
+  FdFileReader fr;
+  bool ok = fr.open(NUM2INT(io_int));
+  assert(ok);
+  LineReader lr(&fr, buf, bufsz);
   p.linereader = &lr;
 
   VALUE res = rb_thread_blocking_region(bulk_parse_line, &p, NULL, NULL);
