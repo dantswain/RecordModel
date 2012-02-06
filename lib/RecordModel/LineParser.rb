@@ -236,7 +236,7 @@ class RecordModel::FastLineParser
     end
   end
 
-  def import(io, max_line_len=4096, &block)
+  def import(reader, max_line_len=4096, &block)
     lines_ok = 0
     lines_read = 0
 
@@ -244,7 +244,7 @@ class RecordModel::FastLineParser
 
     more = true
     while more
-      more, lread, lok = step(io, max_line_len, &block) 
+      more, lread, lok = step(reader, max_line_len, &block) 
       lines_ok += lok
       lines_read += lread
       push_work(nil)
@@ -255,9 +255,9 @@ class RecordModel::FastLineParser
 
   protected
 
-  def step(io, max_line_len, &block)
+  def step(reader, max_line_len, &block)
     before = @current_arr.size
-    more, lread = @current_arr.bulk_parse_line(@item, io.to_i, @line_parse_descr, @sep, max_line_len, 
+    more, lread = @current_arr.bulk_parse_line(@item, reader, @line_parse_descr, @sep, max_line_len, 
       @reject_token_parse_error, @reject_invalid_num_tokens, @valid_token_range.first, @valid_token_range.last, &block)
     return [more, lread, @current_arr.size - before]
   end

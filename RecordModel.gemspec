@@ -11,7 +11,7 @@ spec = Gem::Specification.new do |s|
 	     'include/PosixFileReader.h', 'include/GzipFileReader.h',
 	     'include/XzFileReader.h', 'include/AutoFileReader.h',
              'lib/RecordModel/RecordModel.rb', 'lib/RecordModel/Query.rb',
-             'lib/RecordModel/LineParser.rb',
+             'lib/RecordModel/LineParser.rb', 'lib/RecordModel/AutoFileReader.rb',
              'ext/RecordModel/RecordModel.cc',
              'ext/RecordModel/extconf.rb']
   s.extensions = ['ext/RecordModel/extconf.rb']

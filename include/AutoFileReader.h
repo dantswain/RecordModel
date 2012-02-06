@@ -54,9 +54,11 @@ class AutoFileReader : public FileReader
 
     virtual void close()
     {
-      assert(file);
-      file->close();
-      file = NULL;
+      if (file)
+      {
+        file->close();
+        file = NULL;
+      }
     }
 
     virtual ssize_t read(void *buf, size_t buflen)

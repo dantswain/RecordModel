@@ -14,6 +14,103 @@
 static VALUE cRecordModel;
 static VALUE cRecordModelInstance;
 static VALUE cRecordModelInstanceArray;
+static VALUE cAutoFileReader; // needed by bulk parse
+
+/*
+ * AutoFileReader
+ */
+
+static
+void free_AutoFileReader(AutoFileReader *reader)
+{
+  reader->close();
+  delete reader;
+}
+
+static
+void AutoFileReader__free(void *ptr)
+{
+  free_AutoFileReader((AutoFileReader*)ptr);
+}
+
+static
+bool is_AutoFileReader(VALUE obj)
+{
+  return (TYPE(obj) == T_DATA && 
+      RDATA(obj)->dfree == (RUBY_DATA_FUNC)(AutoFileReader__free));
+}
+
+AutoFileReader* get_AutoFileReader(VALUE obj)
+{
+  if (!is_AutoFileReader(obj))
+  {
+    rb_raise(rb_eTypeError, "wrong argument type");
+  }
+  AutoFileReader *reader = NULL;
+  Data_Get_Struct(obj, AutoFileReader, reader);
+  return reader;
+}
+
+
+static VALUE
+AutoFileReader__open(VALUE klass, VALUE path, VALUE bufsz)
+{
+  Check_Type(path, T_STRING);
+
+  VALUE obj = Qnil;
+  AutoFileReader *reader = new AutoFileReader();
+  if (!reader) return Qnil;
+
+  bool ok = reader->open(RSTRING_PTR(path), NUM2ULONG(bufsz)); 
+  if (!ok)
+  {
+    delete reader;
+    return Qnil;
+  }
+
+  obj = Data_Wrap_Struct(klass, NULL, AutoFileReader__free, reader);
+  return obj;
+}
+
+static VALUE
+AutoFileReader_close(VALUE self)
+{
+  get_AutoFileReader(self)->close();
+  return Qnil;
+}
+
+static VALUE
+AutoFileReader_read(VALUE self, VALUE size)
+{
+  size_t n = NUM2ULONG(size);
+  if (n == 0) return Qnil;
+
+  AutoFileReader *reader = get_AutoFileReader(self);
+
+  char *buf = (char*)malloc(n);
+  if (!buf)
+  {
+    rb_raise(rb_eRuntimeError, "memory error");
+  }
+
+  ssize_t nr = reader->read(buf, n);
+
+  if (nr < 0)
+  {
+    free(buf);
+    rb_raise(rb_eRuntimeError, "failed to read");
+  }
+  if (nr == 0)
+  {
+    free(buf);
+    return Qnil;
+  }
+
+  VALUE res = rb_str_new(buf, nr);
+  free(buf);
+
+  return res;
+}
 
 /*
  * RecordModel
@@ -816,10 +913,9 @@ VALUE bulk_parse_line(void *ptr)
 }
 
 static
-VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE filename, VALUE _field_arr, VALUE _sep, VALUE _bufsz,
+VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE reader, VALUE _field_arr, VALUE _sep, VALUE _bufsz,
   VALUE _reject_token_parse_error, VALUE _reject_invalid_num_tokens, VALUE _min_num_tokens, VALUE _max_num_tokens)
 {
-  Check_Type(filename, T_STRING);
   Params p;
 
   p._rec = _rec;
@@ -833,13 +929,6 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE fi
     rb_raise(rb_eArgError, "Single character string expected");
 
   p.sep = RSTRING_PTR(_sep)[0];
-
-  AutoFileReader fr;
-  bool ok = fr.open(RSTRING_PTR(filename));
-  if (!ok)
-  {
-    rb_raise(rb_eArgError, "Failed to open file: %s\n", RSTRING_PTR(filename));
-  }
 
   p.field_arr_sz = RARRAY_LEN(_field_arr); 
   p.field_arr = new int[p.field_arr_sz];
@@ -857,18 +946,16 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE fi
   if (!buf)
   {
     delete [] p.field_arr;
-    fr.close();
     rb_raise(rb_eRuntimeError, "Not enough memory");
   }
 
-  LineReader lr(&fr, buf, bufsz);
+  LineReader lr(get_AutoFileReader(reader), buf, bufsz);
   p.linereader = &lr;
 
   VALUE res = rb_thread_blocking_region(bulk_parse_line, &p, NULL, NULL);
 
   delete [] p.field_arr;
   free(buf);
-  fr.close();
 
   return rb_ary_new3(2, res, ULONG2NUM(p.lines_read));
 }
@@ -950,10 +1037,16 @@ VALUE RecordModelInstanceArray_sort(VALUE _self)
   return _self;
 }
 
-
+ 
 extern "C"
 void Init_RecordModelExt()
 {
+  cAutoFileReader = rb_define_class("AutoFileReader", rb_cObject);
+  rb_define_singleton_method(cAutoFileReader, "_open", (VALUE (*)(...)) AutoFileReader__open, 2);
+  rb_define_method(cAutoFileReader, "close", (VALUE (*)(...)) AutoFileReader_close, 0);
+  rb_define_method(cAutoFileReader, "read", (VALUE (*)(...)) AutoFileReader_read, 1);
+  
+
   cRecordModel = rb_define_class("RecordModel", rb_cObject);
   rb_define_alloc_func(cRecordModel, RecordModel__allocate);
   rb_define_method(cRecordModel, "initialize", (VALUE (*)(...)) RecordModel_initialize, 1);
