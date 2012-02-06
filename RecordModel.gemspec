@@ -9,6 +9,7 @@ spec = Gem::Specification.new do |s|
 	     'include/LineReader.h', 
 	     'include/FileReader.h', 'include/FdFileReader.h',
 	     'include/PosixFileReader.h', 'include/GzipFileReader.h',
+	     'include/XzFileReader.h', 'include/AutoFileReader.h',
              'lib/RecordModel/RecordModel.rb', 'lib/RecordModel/Query.rb',
              'lib/RecordModel/LineParser.rb',
              'ext/RecordModel/RecordModel.cc',

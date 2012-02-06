@@ -9,6 +9,7 @@ spec = Gem::Specification.new do |s|
 	     'include/LineReader.h',
 	     'include/FileReader.h', 'include/FdFileReader.h',
 	     'include/PosixFileReader.h', 'include/GzipFileReader.h',
+	     'include/XzFileReader.h', 'include/AutoFileReader.h',
              'lib/MMDB/DB.rb', 'lib/MMDB/DBMS.rb',
              'lib/MMDB/CommitLog.rb',
              'ext/MMDB/MMDB.cc', 'ext/MMDB/MmapFile.h',

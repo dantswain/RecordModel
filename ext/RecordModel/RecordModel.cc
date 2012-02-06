@@ -1,6 +1,7 @@
 #include "../../include/RecordModel.h"
 #include "../../include/LineReader.h"
-#include "../../include/FdFileReader.h"
+#include "../../include/AutoFileReader.h"
+
 #include <assert.h> // assert
 #include <strings.h> // bzero
 #include <algorithm> // std::max
@@ -815,9 +816,10 @@ VALUE bulk_parse_line(void *ptr)
 }
 
 static
-VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io_int, VALUE _field_arr, VALUE _sep, VALUE _bufsz,
+VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE filename, VALUE _field_arr, VALUE _sep, VALUE _bufsz,
   VALUE _reject_token_parse_error, VALUE _reject_invalid_num_tokens, VALUE _min_num_tokens, VALUE _max_num_tokens)
 {
+  Check_Type(filename, T_STRING);
   Params p;
 
   p._rec = _rec;
@@ -831,6 +833,13 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
     rb_raise(rb_eArgError, "Single character string expected");
 
   p.sep = RSTRING_PTR(_sep)[0];
+
+  AutoFileReader fr;
+  bool ok = fr.open(RSTRING_PTR(filename));
+  if (!ok)
+  {
+    rb_raise(rb_eArgError, "Failed to open file: %s\n", RSTRING_PTR(filename));
+  }
 
   p.field_arr_sz = RARRAY_LEN(_field_arr); 
   p.field_arr = new int[p.field_arr_sz];
@@ -848,12 +857,10 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
   if (!buf)
   {
     delete [] p.field_arr;
+    fr.close();
     rb_raise(rb_eRuntimeError, "Not enough memory");
   }
 
-  FdFileReader fr;
-  bool ok = fr.open(NUM2INT(io_int));
-  assert(ok);
   LineReader lr(&fr, buf, bufsz);
   p.linereader = &lr;
 
@@ -861,6 +868,7 @@ VALUE RecordModelInstanceArray_bulk_parse_line(VALUE _self, VALUE _rec, VALUE io
 
   delete [] p.field_arr;
   free(buf);
+  fr.close();
 
   return rb_ary_new3(2, res, ULONG2NUM(p.lines_read));
 }
