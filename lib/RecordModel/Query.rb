@@ -37,7 +37,7 @@ class RecordModel::Query
     @ranges.each {|from, to|
       @db.query_aggregate(from, to, item, itemarr, fields, sum)
     }
-    return itermarr
+    return itemarr
   end
 
   def into(itemarr=nil)
