@@ -663,16 +663,21 @@ public:
   struct Entry
   {
     void *ptr;
-    //size_t count;
+    size_t index;
   };
 
   struct Compare
   {
     RM_Type **keys;
+    RecordModelInstanceArray *arr;
 
     bool operator()(const Entry &ai, const Entry &bi) const
     {
-      return (RecordModelInstance::compare_keys_ptr2(keys, ai.ptr, bi.ptr) < 0);
+      void *aip = ai.ptr;
+      void *bip = bi.ptr;
+      if (!aip) aip = arr->ptr_at(ai.index);
+      if (!bip) bip = arr->ptr_at(bi.index);
+      return (RecordModelInstance::compare_keys_ptr2(keys, aip, bip) < 0);
     }
   };
 
@@ -688,15 +693,13 @@ public:
     aggregate_iter_data *data = (aggregate_iter_data*)_data;
 
     Entry e;
-    e.ptr = data->current; 
-    //e.count = 1;
+    e.ptr = data->current->ptr();
 
     std::set<Entry, Compare>::iterator i = data->set->find(e);
     if (i != data->set->end())
     {
       // existing record found! accumulate
-      //i->count += 1;
-      RecordModelInstance rec(data->arr->model, i->ptr); 
+      RecordModelInstance rec(data->arr->model, data->arr->ptr_at(i->index));
       if (data->sum)
       {
         rec.add_values(data->current);
@@ -706,7 +709,8 @@ public:
     {
       bool ok = data->arr->push(data->current);
       assert(ok);
-      e.ptr = data->arr->ptr_at_last();
+      e.ptr = NULL;
+      e.index = data->arr->entries() - 1;
       data->set->insert(e);
     }
 
@@ -718,6 +722,7 @@ public:
   {
     Compare c;
     c.keys = keys; // MUST be NULL terminated array 
+    c.arr = arr;
     std::set<Entry, Compare> set(c);
 
     aggregate_iter_data data;
