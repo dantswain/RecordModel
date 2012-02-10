@@ -222,14 +222,19 @@ struct RecordModelInstance
     model->_keys[i]->inc(ptr());
   }
 
-  inline static int compare_keys_ptr(RecordModel *model, const void *a, const void *b)
+  static int compare_keys_ptr2(RM_Type **keys, const void *a, const void *b)
   {
-    for (int i = 0; model->_keys[i] != NULL; ++i)
+    for (int i = 0; keys[i] != NULL; ++i)
     {
-      int cmp = model->_keys[i]->compare(a, b);
+      int cmp = keys[i]->compare(a, b);
       if (cmp != 0) return cmp;
     }
     return 0;
+  }
+ 
+  inline static int compare_keys_ptr(RecordModel *model, const void *a, const void *b)
+  {
+    return compare_keys_ptr2(model->_keys, a, b);
   }
   
   int compare_keys(const RecordModelInstance *other)
@@ -464,6 +469,19 @@ struct RecordModelInstanceArray
     assert(k < _entries);
     return element_n(k);
   }
+
+  void *ptr_at_last()
+  {
+    if (_entries > 0)
+    {
+      return ptr_at(_entries-1);
+    }
+    else
+    {
+      return NULL;
+    }
+  }
+
 
 private:
 

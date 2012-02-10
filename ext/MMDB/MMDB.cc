@@ -5,6 +5,7 @@
 #include "MmapFile.h"
 #include "ruby.h"
 #include <pthread.h>
+#include <set> // std::set
 
 /*
  * Declared in ../RecordModel/RecordModel.cc
@@ -379,9 +380,20 @@ private:
     return l;
   }
 
+public:
+
+  struct iter_data
+  {
+    MMDB *db;
+    RecordModelInstance *current;
+    uint64_t cursor;
+    bool copy_values_in;
+  };
+
+private:
+
   int query(uint64_t idx_from, uint64_t idx_to, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
-            RecordModelInstance *current,
-            int (*iterator)(RecordModelInstance*, void*), void *data)
+            int (*iterator)(iter_data*), iter_data *data)
   {
     assert(idx_from <= idx_to);
 
@@ -411,18 +423,23 @@ private:
      */
     while (cursor <= idx_to)
     {
-      copy_keys_in(current, cursor);
+      copy_keys_in(data->current, cursor);
      
       int keypos;
-      int cmp = current->keys_in_range_pos(range_from, range_to, keypos);
+      int cmp = data->current->keys_in_range_pos(range_from, range_to, keypos);
       if (cmp == 0)
       {
         /*
          * all keys are within [range_from, range_to]
          */
-        copy_values_in(current, cursor);
-
-        int iter = iterator(current, data);
+	// The values are copied into lazily
+        data->cursor = cursor;
+	if (data->copy_values_in)
+	{
+          copy_values_in(data->current, cursor);
+	}
+     
+        int iter = iterator(data);
         if (iter != ITER_CONTINUE)
         {
           return iter;
@@ -450,12 +467,12 @@ private:
            continue;
         }
 
-        current->copy_keys(range_from, keypos);
+        data->current->copy_keys(range_from, keypos);
 
         /*
          * Search forward
          */
-        cursor = bin_search(cursor+1, idx_to, current->ptr());
+        cursor = bin_search(cursor+1, idx_to, data->current->ptr());
       }
       else if (cmp > 0)
       {
@@ -474,19 +491,20 @@ private:
           break;
         }
 
-        current->copy_keys(range_from, keypos);
-        current->increase_key(keypos-1); // XXX: check overflows
+        data->current->copy_keys(range_from, keypos);
+        data->current->increase_key(keypos-1); // XXX: check overflows
 
         /*
          * Search forward
          */
-        cursor = bin_search(cursor+1, idx_to, current->ptr());
+        cursor = bin_search(cursor+1, idx_to, data->current->ptr());
       }
     }
 
     return ITER_CONTINUE; // continue with next slice
   }
 
+#if 0
   int query_linear(uint64_t idx_from, uint64_t idx_to, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
             RecordModelInstance *current,
             int (*iterator)(RecordModelInstance*, void*), void *data)
@@ -516,7 +534,7 @@ private:
 
     return ITER_CONTINUE; // continue with next slice
   }
-
+#endif
 
 public:
 
@@ -530,8 +548,7 @@ public:
    * "slices" is equal to snapshots.
    */
   int query_all(size_t slices, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
-                 RecordModelInstance *current,
-                 int (*iterator)(RecordModelInstance*, void*), void *data)
+                 int (*iterator)(iter_data *), iter_data *data)
   {
     int iter = ITER_CONTINUE;
     size_t offs = 0;
@@ -549,7 +566,7 @@ public:
       if (length == 0)
         continue;
 
-      iter = query(offs, offs+length-1, range_from, range_to, current, iterator, data);
+      iter = query(offs, offs+length-1, range_from, range_to, iterator, data);
       if (iter == ITER_STOP)
         break;
 
@@ -562,25 +579,28 @@ public:
     return iter;
   }
   
-  struct min_iter_data
+  struct min_iter_data : iter_data
   {
     RecordModelInstance *min;
   };
 
-  static int min_iter(RecordModelInstance *current, void *_data)
+  static int min_iter(iter_data *_data)
   {
     min_iter_data *data = (min_iter_data*)_data;
 
     if (data->min)
     {
-      if (current->compare_keys(data->min) < 0)
+      if (data->current->compare_keys(data->min) < 0)
       {
-        data->min->copy(current);
+	// XXX: directly copy into min 
+	data->db->copy_values_in(data->current, data->cursor);
+        data->min->copy(data->current);
       }
     }
     else
     {
-      data->min = current->dup(); 
+      data->db->copy_values_in(data->current, data->cursor);
+      data->min = data->current->dup(); 
     }
 
     return ITER_NEXT_SLICE;
@@ -593,9 +613,12 @@ public:
              RecordModelInstance *current)
   {
     min_iter_data data;
+    data.db = this;
+    data.current = current;
+    data.copy_values_in = false;
     data.min = NULL;
 
-    query_all(slices, range_from, range_to, current, min_iter, &data);
+    query_all(slices, range_from, range_to, min_iter, (iter_data*) &data);
 
     if (data.min)
     {
@@ -610,12 +633,12 @@ public:
     }
   }
 
-  struct count_iter_data
+  struct count_iter_data : iter_data
   {
     size_t count;
   };
 
-  static int count_iter(RecordModelInstance *current, void *_data)
+  static int count_iter(iter_data *_data)
   {
     count_iter_data *data = (count_iter_data*)_data;
     ++data->count;
@@ -629,11 +652,84 @@ public:
              RecordModelInstance *current)
   {
     count_iter_data data;
+    data.db = this;
+    data.current = current;
+    data.copy_values_in = false;
     data.count = 0;
-    query_all(slices, range_from, range_to, current, count_iter, &data);
+    query_all(slices, range_from, range_to, count_iter, (iter_data*)&data);
     return data.count;
   }
 
+  struct Entry
+  {
+    void *ptr;
+    //size_t count;
+  };
+
+  struct Compare
+  {
+    RM_Type **keys;
+
+    bool operator()(const Entry &ai, const Entry &bi) const
+    {
+      return (RecordModelInstance::compare_keys_ptr2(keys, ai.ptr, bi.ptr) < 0);
+    }
+  };
+
+  struct aggregate_iter_data : iter_data
+  {
+    std::set<Entry, Compare> *set;
+    RecordModelInstanceArray *arr;
+    bool sum;
+  };
+
+  static int aggregate_iter(iter_data *_data)
+  {
+    aggregate_iter_data *data = (aggregate_iter_data*)_data;
+
+    Entry e;
+    e.ptr = data->current; 
+    //e.count = 1;
+
+    std::set<Entry, Compare>::iterator i = data->set->find(e);
+    if (i != data->set->end())
+    {
+      // existing record found! accumulate
+      //i->count += 1;
+      RecordModelInstance rec(data->arr->model, i->ptr); 
+      if (data->sum)
+      {
+        rec.add_values(data->current);
+      }
+    }
+    else
+    {
+      bool ok = data->arr->push(data->current);
+      assert(ok);
+      e.ptr = data->arr->ptr_at_last();
+      data->set->insert(e);
+    }
+
+    return ITER_CONTINUE;
+  }
+ 
+  void query_aggregate(size_t slices, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
+             RecordModelInstance *current, RecordModelInstanceArray *arr, RM_Type **keys /* NULL terminated */, bool sum)
+  {
+    Compare c;
+    c.keys = keys; // MUST be NULL terminated array 
+    std::set<Entry, Compare> set(c);
+
+    aggregate_iter_data data;
+    data.db = this;
+    data.current = current;
+    data.copy_values_in = true;
+    data.set = &set;
+    data.arr = arr;
+    data.sum = sum;
+    query_all(slices, range_from, range_to, aggregate_iter, (iter_data*)&data);
+  }
+ 
 };
 
 static
@@ -717,15 +813,16 @@ VALUE MMDB_put_bulk(VALUE self, VALUE arr)
   return rb_thread_blocking_region(put_bulk, &p, NULL, NULL);
 }
 
-struct yield_iter_data
+struct yield_iter_data : MMDB::iter_data
 {
   VALUE _current;
 };
 
 static
-int yield_iter(RecordModelInstance *current, void *data)
+int yield_iter(MMDB::iter_data *_data)
 {
-  rb_yield(((yield_iter_data*)data)->_current);
+  yield_iter_data *data = (yield_iter_data*)_data;
+  rb_yield(data->_current);
   return MMDB::ITER_CONTINUE;
 }
 
@@ -744,24 +841,28 @@ VALUE MMDB_query_each(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE 
   assert(from->model == db->model);
 
   struct yield_iter_data d;
+  d.db = db;
+  d.current = current;
+  d.copy_values_in = true;
   d._current = _current;
 
   size_t snapshot = NUM2ULONG(_snapshot);
 
-  db->query_all(snapshot, from, to, current, yield_iter, &d); 
+  db->query_all(snapshot, from, to, yield_iter, (MMDB::iter_data*)&d); 
 
   return Qnil;
 }
 
-struct array_fill_iter_data
+struct array_fill_iter_data : MMDB::iter_data
 {
   RecordModelInstanceArray *arr;
 };
 
 static
-int array_fill_iter(RecordModelInstance *current, void *data)
+int array_fill_iter(MMDB::iter_data *_data)
 {
-  bool ok = ((array_fill_iter_data*)data)->arr->push((const RecordModelInstance*)current);
+  array_fill_iter_data *data = (array_fill_iter_data*)_data;
+  bool ok = data->arr->push((const RecordModelInstance*)data->current);
   return (ok ? MMDB::ITER_CONTINUE : MMDB::ITER_STOP);
 }
  
@@ -774,6 +875,10 @@ struct Params_query_into
   RecordModelInstanceArray *arr;
   size_t snapshot;
   size_t count; // to return value for query_count
+
+  // for query_aggregate 
+  RM_Type **keys;
+  bool sum;
 };
 
 static
@@ -781,9 +886,12 @@ VALUE query_into(void *a)
 {
   Params_query_into *p = (Params_query_into*)a;
   struct array_fill_iter_data d;
+  d.db = p->db;
+  d.current = p->current;
+  d.copy_values_in = true;
   d.arr = p->arr;
 
-  int iter = p->db->query_all(p->snapshot, p->from, p->to, p->current, array_fill_iter, &d); 
+  int iter = p->db->query_all(p->snapshot, p->from, p->to, array_fill_iter, (MMDB::iter_data*)&d); 
 
   if (iter == MMDB::ITER_STOP)
     return Qfalse;
@@ -883,6 +991,62 @@ VALUE MMDB_query_count(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE
   return ULONG2NUM(p.count);
 }
 
+static
+VALUE query_aggregate(void *a)
+{
+  Params_query_into *p = (Params_query_into*)a;
+  p->db->query_aggregate(p->snapshot, p->from, p->to, p->current, p->arr, p->keys, p->sum);
+  return Qnil;
+}
+
+/*
+ * Returns the number of matching records.
+ */
+static
+VALUE MMDB_query_aggregate(VALUE self, VALUE _from, VALUE _to, VALUE _current, VALUE _arr, VALUE _keys, VALUE _sum, VALUE _snapshot)
+{
+  Params_query_into p;
+  Data_Get_Struct(self, MMDB, p.db);
+
+  p.from = get_RecordModelInstance(_from);
+  p.to = get_RecordModelInstance(_to);
+  p.current = get_RecordModelInstance(_current);
+  p.arr = get_RecordModelInstanceArray(_arr);
+
+  p.sum = RTEST(_sum);
+
+  assert(p.from->model == p.to->model);
+  assert(p.from->model == p.current->model);
+  assert(p.from->model == p.db->model);
+  assert(p.from->model == p.arr->model);
+
+  p.snapshot = NUM2ULONG(_snapshot);
+
+  Check_Type(_keys, T_ARRAY);
+  p.keys = (RM_Type**)malloc(sizeof(RM_Type*)*(RARRAY_LEN(_keys)+1));
+  if (!p.keys)
+  {
+    rb_raise(rb_eArgError, "failed to alloc memory");
+  }
+  for (int i=0; i < RARRAY_LEN(_keys); ++i)
+  {
+    p.keys[i] = p.from->model->get_field(NUM2ULONG(RARRAY_PTR(_keys)[i]));
+    if (!p.keys[i])
+    {
+      free(p.keys);
+      rb_raise(rb_eArgError, "invalid field");
+    }
+  }
+  p.keys[RARRAY_LEN(_keys)] = NULL;
+
+  rb_thread_blocking_region(query_aggregate, &p, NULL, NULL);
+
+  free(p.keys);
+
+  return Qnil;
+}
+
+
 
 /*
  * TODO: in background
@@ -928,6 +1092,7 @@ void Init_RecordModelMMDBExt()
   rb_define_method(cMMDB, "query_into", (VALUE (*)(...)) MMDB_query_into, 5);
   rb_define_method(cMMDB, "query_min", (VALUE (*)(...)) MMDB_query_min, 4);
   rb_define_method(cMMDB, "query_count", (VALUE (*)(...)) MMDB_query_count, 4);
+  rb_define_method(cMMDB, "query_aggregate", (VALUE (*)(...)) MMDB_query_aggregate, 7);
   rb_define_method(cMMDB, "commit", (VALUE (*)(...)) MMDB_commit, 0);
   rb_define_method(cMMDB, "get_snapshot_num", (VALUE (*)(...)) MMDB_get_snapshot_num, 0);
 }

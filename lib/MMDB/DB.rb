@@ -62,6 +62,10 @@ module MMDB
     def query_count(from, to, item)
       @db.query_count(from, to, item, @snapshot)
     end
+
+    def query_aggregate(from, to, item, arr, fields, sum)
+      @db.query_aggregate(from, to, item, arr, fields, sum, @snapshot)
+    end
   end
 
 end # module MMDB
