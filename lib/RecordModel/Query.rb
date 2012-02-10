@@ -33,6 +33,7 @@ class RecordModel::Query
   def aggregate(fields, itemarr=nil, sum=true)
     fields = fields.map {|field| @klass.sym_to_fld_idx(field) }
     itemarr ||= @klass.make_array(1024) # should be expandable!
+    item = @klass.new
     @ranges.each {|from, to|
       @db.query_aggregate(from, to, item, itemarr, fields, sum)
     }
