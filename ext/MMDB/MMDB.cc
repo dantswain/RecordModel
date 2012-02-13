@@ -37,6 +37,12 @@ extern RecordModelInstanceArray* get_RecordModelInstanceArray(VALUE);
  * just there to help a bit against unwanted schema changes. The data file is
  * named e.g. "data_40", i.e. again is the record size in the name. 
  *
+ * We now also have a "minmax" file (e.g. "minmax_52"), which stores two
+ * complete RecordModel instances per slice, the minimum value over all fields
+ * and the maximum value. This is used to optimize queries by range checking,
+ * so we can skip a whole slice if one value range has no intersection with the
+ * query range.
+ *
  * Thread safetly:
  *
  * It is safe to use the methods "put_bulk", "commit" and "query_all"
@@ -51,6 +57,7 @@ struct MMDB
 private:
 
   MmapFile *db_slices;
+  MmapFile *db_minmax;
   MmapFile *db_data;
   MmapFile **db_keys;
   size_t num_keys;
@@ -67,6 +74,7 @@ public:
   {
     model = NULL;
     db_slices = NULL;
+    db_minmax = NULL;
     db_data = NULL;
     db_keys = NULL;
     num_keys = 0;
@@ -109,6 +117,12 @@ public:
     ok = db_slices->open(name, sizeof(uint32_t)*num_slices, sizeof(uint32_t)*_hint_slices, readonly);
     if (!ok) goto fail;
 
+    // open min-max file
+    snprintf(name, name_sz, "%sminmax_%ld", path_prefix, model->size());
+    db_minmax = new MmapFile(&rwlock);
+    ok = db_minmax->open(name, model->size()*2*num_slices, model->size()*2*_hint_slices, readonly);
+    if (!ok) goto fail;
+
     // open data file
     snprintf(name, name_sz, "%sdata_%ld", path_prefix, model->size_values());
     db_data = new MmapFile(&rwlock);
@@ -146,6 +160,12 @@ public:
       db_slices->close();
       delete db_slices;
       db_slices = NULL;
+    }
+    if (db_minmax)
+    {
+      db_minmax->close();
+      delete db_minmax;
+      db_minmax = NULL;
     }
     if (db_data)
     {
@@ -189,6 +209,9 @@ public:
     if (!db_slices->sync())
       goto end;
 
+    if (!db_minmax->sync())
+      goto end;
+
     if (!db_data->sync())
       goto end;
 
@@ -212,6 +235,13 @@ end:
 
   /*
    * XXX: Do not mix size_t and uint32_t
+   *
+   * We do an optimization, in that we store two records for each slice, the
+   * first containing the minimum over all records of that slice (on a per
+   * field basis), and the second the maximum. For example, if one slice
+   * contains only campaigns within 4000 and 5000, but we are looking for
+   * campaign 3000, we can completely skip this slice, while before, it
+   * depended upon the order of keys.
    */
   void put_bulk(RecordModelInstanceArray *arr, bool verify=false)
   {
@@ -242,6 +272,35 @@ end:
     }
 
     /*
+     * Determine the complete (on a per field basis) min/max.
+     */
+    RecordModelInstance *min = RecordModelInstance::allocate(model);
+    RecordModelInstance *max = RecordModelInstance::allocate(model);
+
+    min->set_min();
+    max->set_max();
+
+    void *min_ptr = min->ptr();
+    void *max_ptr = max->ptr();
+    for (size_t i = 0; i < n; ++i)
+    {
+      const void *cur_ptr = arr->ptr_at(i);
+      for (size_t k = 0; k < model->_num_fields; ++k)
+      {
+        RM_Type *field = model->_all_fields[k];
+
+	if (field->compare(cur_ptr, min_ptr) < 0)
+	{
+	  field->copy(min_ptr, cur_ptr);
+	}
+	if (field->compare(cur_ptr, max_ptr) > 0)
+	{
+	  field->copy(max_ptr, cur_ptr);
+	}
+      }
+    }
+
+    /*
      * There cannot be more than one thread calling put_bulk
      * at the same time. Use a mutex to guarantee that.
      */
@@ -257,23 +316,14 @@ end:
     // store the slice length
     db_slices->append_value<uint32_t>(n);
 
+    // store min/max records
+    memcpy(db_minmax->ptr_append(model->size()), min_ptr, model->size());
+    memcpy(db_minmax->ptr_append(model->size()), max_ptr, model->size());
+
+    // store key/data
     for (size_t i = 0; i < n; ++i)
     {
-      void *rec_ptr = arr->ptr_at(i);
-
-      // copy data
-      for (size_t k = 0; k < model->_num_values; ++k)
-      {
-	RM_Type *field = model->_values[k];
-	field->copy_to_memory(rec_ptr, db_data->ptr_append(field->size())); 
-      }
-
-      // copy keys
-      for (size_t k = 0; k < model->_num_keys; ++k)
-      {
-	RM_Type *field = model->_keys[k];
-	field->copy_to_memory(rec_ptr, db_keys[k]->ptr_append(field->size())); 
-      }
+      store_record(arr->ptr_at(i));
     }
 
     num_records += n;
@@ -281,7 +331,31 @@ end:
 
     err = pthread_mutex_unlock(&mutex);
     assert(!err);
+
+    RecordModelInstance::deallocate(min);
+    RecordModelInstance::deallocate(max);
   }
+
+private:
+
+  inline void store_record(void *rec_ptr)
+  {
+    // copy data
+    for (size_t k = 0; k < model->_num_values; ++k)
+    {
+      RM_Type *field = model->_values[k];
+      field->copy_to_memory(rec_ptr, db_data->ptr_append(field->size())); 
+    }
+
+    // copy keys
+    for (size_t k = 0; k < model->_num_keys; ++k)
+    {
+      RM_Type *field = model->_keys[k];
+      field->copy_to_memory(rec_ptr, db_keys[k]->ptr_append(field->size())); 
+    }
+  }
+
+public:
 
   // -----------------------------------------------
   // Query support
@@ -392,11 +466,14 @@ public:
 
 private:
 
-  int query(uint64_t idx_from, uint64_t idx_to, const RecordModelInstance *range_from, const RecordModelInstance *range_to,
+  int query(uint64_t idx_from, uint64_t idx_to,
+            const RecordModelInstance *range_from, const RecordModelInstance *range_to,
             int (*iterator)(iter_data*), iter_data *data)
   {
     assert(idx_from <= idx_to);
 
+    // the code below is no longer neccessary, as we store a min/max records separately
+    #if 0
     /*
      * What we are looking for is completely out of bound.
      *
@@ -412,6 +489,7 @@ private:
      */
     if (compare(range_from->ptr(), idx_to) > 0)
       return ITER_CONTINUE;
+    #endif
 
     /*
      * Position our cursor using binary search
@@ -563,12 +641,50 @@ public:
     for (size_t s = 0; s < slices; ++s)
     {
       uint32_t length = db_slices->ptr_read_element_at<uint32_t>(s);
+
       if (length == 0)
         continue;
 
-      iter = query(offs, offs+length-1, range_from, range_to, iterator, data);
-      if (iter == ITER_STOP)
-        break;
+      /*
+       * For every field check if the requested range has an overlap with the
+       * slice range (min/max records). If only one field has no overlap, we
+       * can skip the whole slice.
+       */
+      const void *min_ptr = db_minmax->ptr_read_element(2*s, model->size()); 
+      const void *max_ptr = db_minmax->ptr_read_element(2*s+1, model->size()); 
+      assert(min_ptr && max_ptr);
+
+      bool skip = false;
+      for (size_t k = 0; k < model->_num_fields; ++k)
+      {
+        RM_Type *field = model->_all_fields[k];
+
+	/*
+	 * What we are looking for is completely out of bound.
+	 *
+	 * [range_from, range_to] ... [min_ptr, max_ptr]
+	 *
+	 * or
+	 *
+	 * [min_ptr, max_ptr] ... [range_from, range_to]
+	 */
+	if ((field->compare(range_to->ptr(), min_ptr) < 0) || 
+	    (field->compare(range_from->ptr(), max_ptr) > 0))
+        {
+          skip = true;
+          break;
+        }
+      }
+
+      if (skip)
+      {
+        iter = ITER_CONTINUE;
+      }
+      else
+      {
+        iter = query(offs, offs+length-1, range_from, range_to, iterator, data);
+        if (iter == ITER_STOP) break;
+      }
 
       offs += length;
     }

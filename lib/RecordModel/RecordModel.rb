@@ -141,6 +141,14 @@ class RecordModelInstance
     hash.each {|k, v| self.send(:"#{k}=", v) } if hash
   end
 
+  def set_min(fld_idx=nil)
+    _set_min(fld_idx)
+  end
+
+  def set_max(fld_idx=nil)
+    _set_max(fld_idx)
+  end
+
   def to_hash
     h = {}
     __info().each {|fld| id = fld.first; h[id] = send(id)}
@@ -175,32 +183,20 @@ class RecordModelInstance
   end
 
   def self.build_query(query)
-    from = new()
-    to = new()
+    from = new().set_min
+    to = new().set_max
 
-    used_keys = [] 
-
-    __info().each_with_index {|fld, idx|
-      next unless fld[2] # we only want keys!
-      id = fld.first
- 
-      if query.has_key?(id)
-        used_keys << id
-        case (q = query[id])
-        when Range 
-          raise ArgumentError if q.exclude_end?
-          from[idx] = q.first 
-          to[idx] = q.last
-        else
-          from[idx] = to[idx] = q
-        end
+    query.each {|id, q|
+      idx = sym_to_fld_idx(id)
+      case q
+      when Range 
+        raise ArgumentError if q.exclude_end?
+        from[idx] = q.first 
+        to[idx] = q.last
       else
-        from.set_min(idx)
-        to.set_max(idx)
+        from[idx] = to[idx] = q
       end
     }
-
-    raise ArgumentError unless (query.keys - used_keys).empty?
 
     return from, to
   end

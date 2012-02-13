@@ -494,6 +494,13 @@ static
 VALUE RecordModelInstance_set_min(VALUE _self, VALUE field_idx)
 {
   RecordModelInstance *self = get_RecordModelInstance(_self);
+
+  if (NIL_P(field_idx))
+  {
+    self->set_min();
+    return _self;
+ }
+
   RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
 
   if (field == NULL)
@@ -503,13 +510,20 @@ VALUE RecordModelInstance_set_min(VALUE _self, VALUE field_idx)
 
   field->set_min(self->ptr());
 
-  return Qnil;
+  return _self;
 }
 
 static
 VALUE RecordModelInstance_set_max(VALUE _self, VALUE field_idx)
 {
   RecordModelInstance *self = get_RecordModelInstance(_self);
+
+  if (NIL_P(field_idx))
+  {
+    self->set_max();
+    return _self:
+  }
+
   RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
 
   if (field == NULL)
@@ -519,7 +533,7 @@ VALUE RecordModelInstance_set_max(VALUE _self, VALUE field_idx)
 
   field->set_max(self->ptr());
 
-  return Qnil;
+  return _self;
 }
 
 static
@@ -1082,8 +1096,8 @@ void Init_RecordModelExt()
   cRecordModelInstance = rb_define_class("RecordModelInstance", rb_cObject);
   rb_define_method(cRecordModelInstance, "[]", (VALUE (*)(...)) RecordModelInstance_get, 1);
   rb_define_method(cRecordModelInstance, "[]=", (VALUE (*)(...)) RecordModelInstance_set, 2);
-  rb_define_method(cRecordModelInstance, "set_min", (VALUE (*)(...)) RecordModelInstance_set_min, 1);
-  rb_define_method(cRecordModelInstance, "set_max", (VALUE (*)(...)) RecordModelInstance_set_max, 1);
+  rb_define_method(cRecordModelInstance, "_set_min", (VALUE (*)(...)) RecordModelInstance_set_min, 1);
+  rb_define_method(cRecordModelInstance, "_set_max", (VALUE (*)(...)) RecordModelInstance_set_max, 1);
   rb_define_method(cRecordModelInstance, "set_from_string", (VALUE (*)(...)) RecordModelInstance_set_from_string, 2);
   rb_define_method(cRecordModelInstance, "zero!", (VALUE (*)(...)) RecordModelInstance_zero, 0);
   rb_define_method(cRecordModelInstance, "dup", (VALUE (*)(...)) RecordModelInstance_dup, 0);

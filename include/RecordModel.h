@@ -147,6 +147,28 @@ struct RecordModelInstance
     }
   }
 
+  /*
+   * Set all fields to their mininum value
+   */
+  void set_min()
+  {
+    for (size_t i = 0; i < model->_num_fields; ++i)
+    {
+      model->_all_fields[i]->set_min(ptr());
+    }
+  }
+
+  /*
+   * Set all fields to their maximum value
+   */
+  void set_max()
+  {
+    for (size_t i = 0; i < model->_num_fields; ++i)
+    {
+      model->_all_fields[i]->set_max(ptr());
+    }
+  }
+ 
   void copy(const RecordModelInstance *src)
   {
     assert(src->model == model);
