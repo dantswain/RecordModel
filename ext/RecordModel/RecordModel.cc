@@ -1047,7 +1047,7 @@ VALUE RecordModelInstanceArray_sort(VALUE _self, VALUE _keys)
     assert(keys);
     for (int i = 0; i < RARRAY_LEN(_keys); ++i)
     {
-      keys[i] = self->model->get_field(RARRAY_PTR(_keys)[i]);
+      keys[i] = self->model->get_field(FIX2UINT(RARRAY_PTR(_keys)[i]));
       assert(keys[i]);
     }
     keys[RARRAY_LEN(_keys)] = NULL;
