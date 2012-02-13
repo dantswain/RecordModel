@@ -59,7 +59,9 @@ AutoFileReader__open(VALUE klass, VALUE path, VALUE bufsz)
 
   VALUE obj = Qnil;
   AutoFileReader *reader = new AutoFileReader();
-  if (!reader) return Qnil;
+  if (!reader) {
+    return Qnil;
+  }
 
   bool ok = reader->open(RSTRING_PTR(path), NUM2ULONG(bufsz)); 
   if (!ok)
@@ -1033,9 +1035,31 @@ VALUE RecordModelInstanceArray_each(VALUE _self, VALUE _rec)
 }
 
 static
-VALUE RecordModelInstanceArray_sort(VALUE _self)
+VALUE RecordModelInstanceArray_sort(VALUE _self, VALUE _keys)
 {
-  get_RecordModelInstanceArray(_self)->sort();
+  RecordModelInstanceArray *self = get_RecordModelInstanceArray(_self);
+  RM_Type **keys = NULL;
+
+  if (!NIL_P(_keys))
+  {
+    Check_Type(_keys, T_ARRAY);
+    keys = (RM_Type**)malloc(sizeof(RM_Type*) * (RARRAY_LEN(_keys)+1));
+    assert(keys);
+    for (int i = 0; i < RARRAY_LEN(_keys); ++i)
+    {
+      keys[i] = self->model->get_field(RARRAY_PTR(_keys)[i]);
+      assert(keys[i]);
+    }
+    keys[RARRAY_LEN(_keys)] = NULL;
+  }
+  
+  self->sort(keys);
+
+  if (keys)
+  {
+    free(keys);
+  }
+
   return _self;
 }
 
@@ -1082,5 +1106,5 @@ void Init_RecordModelExt()
   rb_define_method(cRecordModelInstanceArray, "expandable?", (VALUE (*)(...)) RecordModelInstanceArray_expandable, 0);
   rb_define_method(cRecordModelInstanceArray, "_each", (VALUE (*)(...)) RecordModelInstanceArray_each, 1);
   rb_define_method(cRecordModelInstanceArray, "_update_each", (VALUE (*)(...)) RecordModelInstanceArray_update_each, 3);
-  rb_define_method(cRecordModelInstanceArray, "sort", (VALUE (*)(...)) RecordModelInstanceArray_sort, 0);
+  rb_define_method(cRecordModelInstanceArray, "_sort", (VALUE (*)(...)) RecordModelInstanceArray_sort, 1);
 }

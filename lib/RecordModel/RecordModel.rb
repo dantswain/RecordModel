@@ -261,4 +261,12 @@ class RecordModelInstanceArray
   def inspect
     [self.class, to_a]
   end
+
+  def sort(arr=nil)
+    if arr
+      _sort(arr.map{|attr| @model_klass.sym_to_fld_idx(attr)})
+    else
+      _sort(arr)
+    end
+  end
 end

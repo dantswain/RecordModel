@@ -290,13 +290,13 @@ struct RecordModelInstance
 
 struct RecordModelInstanceArraySorter
 {
-  RecordModel *model;
+  RM_Type **keys;
   void *base_ptr;
   size_t element_size;
  
   bool operator()(uint32_t ai, uint32_t bi)
   {
-    return (RecordModelInstance::compare_keys_ptr(model, 
+    return (RecordModelInstance::compare_keys_ptr2(keys, 
       ((char*)base_ptr) + element_size*ai, ((char*)base_ptr) + element_size*bi) < 0);
   }
 };
@@ -441,12 +441,21 @@ struct RecordModelInstanceArray
    * uses a separate sort array (sort_arr). Use idx_to_sort(i) to
    * retrieve the sorted index.
    */
-  void sort()
+  void sort(RM_Type **keys=NULL)
   {
     RecordModelInstanceArraySorter s;
-    s.model = model;
     s.base_ptr = _ptr;
     s.element_size = element_size(); 
+
+    if (keys)
+    {
+      s.keys = keys;
+    }
+    else
+    {
+      s.keys = model->_keys;
+    }
+
     if (!sort_arr)
     {
       sort_arr = new std::vector<SORT_IDX>; 
