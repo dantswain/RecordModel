@@ -244,6 +244,11 @@ class RecordModelInstanceArray
     _each(instance) {|i| yield i.dup}
   end
 
+  def each_no_dup(&block)
+    instance = @model_klass.new
+    _each(instance, &block)
+  end
+
   def update_each(attr, matching_value, instance=nil, &block)
     instance ||= @model_klass.new
     _update_each(@model_klass.sym_to_fld_idx(attr), matching_value, instance, &block)
