@@ -521,7 +521,7 @@ VALUE RecordModelInstance_set_max(VALUE _self, VALUE field_idx)
   if (NIL_P(field_idx))
   {
     self->set_max();
-    return _self:
+    return _self;
   }
 
   RM_Type *field = self->model->get_field(FIX2UINT(field_idx));
