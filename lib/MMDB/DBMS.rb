@@ -8,7 +8,7 @@ module MMDB
       new(*args, &block)
     end
 
-    def initialize(dirname, readonly, schemas, &block)
+    def initialize(dirname, readonly, schemas)
       @dirname = dirname
       @readonly = readonly
       @schemas = schemas
@@ -46,13 +46,13 @@ module MMDB
         raise "Cannot open a database" unless db
         @dbs[id] = db
       end
+    end
 
-      if block
-        begin
-          yield self
-        ensure
-          close
-        end
+    def with
+      begin
+        yield self
+      ensure
+        close
       end
     end
 
