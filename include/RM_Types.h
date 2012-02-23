@@ -10,6 +10,7 @@
 #include <endian.h>  // htole64
 #include <math.h>    // pow
 #include "ruby.h"    // Ruby
+#include <ctype.h>   // isspace
 
 #define RM_ERR_OK 0
 #define RM_ERR_INT_RANGE 1
@@ -44,6 +45,18 @@ struct RM_Conversion
 	}
       }
       else
+      {
+        break;
+      }
+    }
+
+    /*
+     * accept trailing whitespace
+     */
+    for (; s != e; ++s)
+    {
+      char c = *s;
+      if (!isspace(c))
       {
         err = RM_ERR_INT_INV; // invalid 
         return 0;

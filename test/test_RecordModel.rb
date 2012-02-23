@@ -156,6 +156,8 @@ class TestRecordModel < Test::Unit::TestCase
     from_string(rec, :i, (127 << 24) + 1, '127.0.0.1') 
     from_string(rec, :i, RuntimeError, '256.0.0.1') 
     from_string(rec, :i, RuntimeError, '255.0.0') 
+    from_string(rec, :i, (24 << 24) | (6 << 16) | (61 << 8) | 137, '24.6.61.137')
+    from_string(rec, :i, (24 << 24) | (6 << 16) | (61 << 8) | 137, '24.6.61.137  ')
   end
 
   def from_string(rec, fld, exp, str)
