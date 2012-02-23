@@ -50,6 +50,7 @@ class RecordModel
       when :uint8  then 1
       when :timestamp then 8
       when :timestamp_desc then 8
+      when :ip then 4
       when :double then 8
       when :hexstr then sz 
       when :string then sz 
@@ -129,6 +130,7 @@ class RecordModelInstance
     when :double then 'double %s'
     when :hexstr then "char %s[#{sz}]"
     when :string then "char %s[#{sz}]" 
+    when :ip then 'uint32_t %s'
     else
       raise
     end % name

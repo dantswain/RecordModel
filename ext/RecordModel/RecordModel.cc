@@ -306,6 +306,10 @@ VALUE RecordModel_initialize(VALUE self, VALUE fields)
     {
       t = new RM_DOUBLE();
     }
+    else if (ID2SYM(rb_intern("ip")) == e_type)
+    {
+      t = new RM_IP(e_default_num);
+    }
     else if (ID2SYM(rb_intern("hexstr")) == e_type)
     {
       t = new RM_HEXSTR(length);

@@ -20,6 +20,56 @@
 
 struct RM_Conversion
 {
+  static uint32_t ipstr_to_uint(const char *s, const char *e, int &err)
+  {
+    uint32_t octets[4] = {0,0,0,0};
+    int octet = 0;
+    err = RM_ERR_OK;
+
+    for (; s != e; ++s)
+    {
+      char c = *s;
+      if (c >= '0' && c <= '9')
+      {
+        octets[octet] *= 10;
+        octets[octet] += (c-'0');
+      }
+      else if (c == '.')
+      {
+        ++octet;
+	if (octet >= 4)
+	{
+          err = RM_ERR_INT_INV; // invalid 
+	  return 0;
+	}
+      }
+      else
+      {
+        err = RM_ERR_INT_INV; // invalid 
+        return 0;
+      }
+    }
+
+    if (octet != 3)
+    {
+      err = RM_ERR_INT_INV; // invalid 
+      return 0;
+    }
+
+    uint32_t ip = 0;
+    for (int i=0; i<4; ++i)
+    {
+      if (octets[i] >= 256)
+      {
+        err = RM_ERR_INT_INV; // invalid 
+        return 0;
+      }
+      ip = (ip << 8) | octets[i];
+    }
+
+    return ip;
+  }
+
   static uint64_t str_to_uint(const char *s, const char *e, int &err)
   {
     uint64_t v = 0;
@@ -538,6 +588,38 @@ struct RM_DOUBLE : RM_Type
     return 0;
   }
 };
+
+struct RM_IP : RM_UInt<uint32_t>
+{
+  RM_IP(uint32_t d) : RM_UInt<uint32_t>(d) {}
+
+  virtual int set_from_ruby(void *a, VALUE val)
+  {
+    if (TYPE(val) == T_STRING)
+    {
+      return set_from_string(a, RSTRING_PTR(val), RSTRING_PTR(val)+RSTRING_LEN(val));
+    }
+
+    return RM_UInt<uint32_t>::set_from_ruby(a, val);
+  }
+
+  // TODO: return as IP string?
+  #if 0
+  virtual VALUE to_ruby(const void *a)
+  {
+  }
+  #endif
+
+  virtual int set_from_string(void *a, const char *s, const char *e)
+  {
+    int err;
+    uint32_t i = RM_Conversion::ipstr_to_uint(s, e, err);
+    if (err) return err;
+    return _set_uint(a, i);
+  }
+};
+
+
 
 struct RM_String : RM_Type
 {

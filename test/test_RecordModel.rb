@@ -17,6 +17,7 @@ class TestRecordModel < Test::Unit::TestCase
       r.key :g, :timestamp
       r.key :h, :timestamp_desc
       r.key :s, :string, :size => 32
+      r.key :i, :ip
     end
   end
 
@@ -41,7 +42,7 @@ class TestRecordModel < Test::Unit::TestCase
   end
 
   def test_model_size
-    assert_equal(87, @klass.model.size)
+    assert_equal(91, @klass.model.size)
   end
 
   def test_default_values
@@ -83,6 +84,7 @@ class TestRecordModel < Test::Unit::TestCase
     assert_equal(0, rec.g)
     assert_equal(0, rec.h)
     assert_equal("\000" * 32, rec.s)
+    assert_equal(0, rec.i)
   end
 
   def test_min_max
@@ -150,6 +152,10 @@ class TestRecordModel < Test::Unit::TestCase
 
     from_string(rec, :s, 'abcdefgh' + "\000"*(32-8), 'abcdefgh') 
     from_string(rec, :s, 'a' + "\000"*31, 'a') 
+
+    from_string(rec, :i, (127 << 24) + 1, '127.0.0.1') 
+    from_string(rec, :i, RuntimeError, '256.0.0.1') 
+    from_string(rec, :i, RuntimeError, '255.0.0') 
   end
 
   def from_string(rec, fld, exp, str)
