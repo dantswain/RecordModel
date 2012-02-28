@@ -662,9 +662,8 @@ public:
       const void *max_ptr = db_minmax->ptr_read_element(2*s+1, model->size()); 
       assert(min_ptr && max_ptr);
 
-      if (!model->overlap(range_from->ptr(), range_to->ptr(), min_ptr, max_ptr))
+      if (!model->overlap_all(range_from->ptr(), range_to->ptr(), min_ptr, max_ptr))
       {
-	printf("skipped\n");
         iter = ITER_CONTINUE;
       }
       else
