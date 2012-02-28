@@ -654,30 +654,9 @@ public:
       const void *max_ptr = db_minmax->ptr_read_element(2*s+1, model->size()); 
       assert(min_ptr && max_ptr);
 
-      bool skip = false;
-      for (size_t k = 0; k < model->_num_fields; ++k)
+      if (!model->overlap(range_from->ptr(), range_to->ptr(), min_ptr, max_ptr))
       {
-        RM_Type *field = model->_all_fields[k];
-
-	/*
-	 * What we are looking for is completely out of bound.
-	 *
-	 * [range_from, range_to] ... [min_ptr, max_ptr]
-	 *
-	 * or
-	 *
-	 * [min_ptr, max_ptr] ... [range_from, range_to]
-	 */
-	if ((field->compare(range_to->ptr(), min_ptr) < 0) || 
-	    (field->compare(range_from->ptr(), max_ptr) > 0))
-        {
-          skip = true;
-          break;
-        }
-      }
-
-      if (skip)
-      {
+	printf("skipped\n");
         iter = ITER_CONTINUE;
       }
       else

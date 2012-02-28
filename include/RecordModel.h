@@ -51,6 +51,20 @@ struct RecordModel
     return _all_fields[idx];
   }
 
+  /*
+   * Returns true if any field in the range a0..a1 overlaps
+   * with b0..b1.
+   */
+  bool overlap(const void *a0, const void *a1, const void *b0, const void *b1)
+  {
+    for (size_t k = 0; k < _num_fields; ++k)
+    {
+      if (_all_fields[k]->overlap(a0, a1, b0, b1)) return true;
+    }
+
+    return false;
+  }
+
   bool is_virgin()
   {
     return (_all_fields == NULL && _keys == NULL && _values == NULL && _num_fields == 0 && _num_keys == 0 && _num_values == 0 &&

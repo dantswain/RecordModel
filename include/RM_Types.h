@@ -317,6 +317,22 @@ struct RM_Type
 
   // mem is not a pointer to a record, but to the field itself
   virtual int compare_with_memory(const void *a, const void *mem) = 0;
+
+  bool overlap(const void *a0, const void *a1, const void *b0, const void *b1)
+  {
+    assert(compare(a0, a1) <= 0);
+    assert(compare(b0, b1) <= 0);
+
+    // no overlap if b1 < a0:
+    //   [b0, b1]  ... [a0, a1]
+    if (compare(b1, a0) < 0) return false;
+
+    // no overlap if b0 > a1
+    //   [a0, a1]  ... [b0, b1]
+    if (compare(b0, a1) > 0) return false;
+
+    return true;
+  }
 };
 
 // order=true ==> ascending, order=false descending
