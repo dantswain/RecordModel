@@ -277,12 +277,14 @@ end:
     RecordModelInstance *min = RecordModelInstance::allocate(model);
     RecordModelInstance *max = RecordModelInstance::allocate(model);
 
-    min->set_min();
-    max->set_max();
-
     void *min_ptr = min->ptr();
     void *max_ptr = max->ptr();
-    for (size_t i = 0; i < n; ++i)
+
+    // both min and max are set to the first element.
+    arr->copy_out(min, 0);
+    arr->copy_out(max, 0);
+
+    for (size_t i = 1; i < n; ++i)
     {
       const void *cur_ptr = arr->ptr_at(i);
       for (size_t k = 0; k < model->_num_fields; ++k)
