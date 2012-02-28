@@ -621,6 +621,12 @@ public:
     return this->num_slices;
   }
 
+  const void *get_minmax_element(size_t index)
+  {
+    assert(index < 2*this->num_slices);
+    return db_minmax->ptr_read_element(index, model->size()); 
+  }
+
   /*
    * Queries all slices
    * "slices" is equal to snapshots.
@@ -1181,6 +1187,30 @@ VALUE MMDB_get_snapshot_num(VALUE self)
   return ULONG2NUM(db->get_num_slices_for_read());
 }
 
+static
+VALUE MMDB_slices(VALUE self, VALUE _current, VALUE _snapshot)
+{
+  MMDB *db;
+  Data_Get_Struct(self, MMDB, db);
+
+  RecordModelInstance *current = get_RecordModelInstance(_current);
+  assert(current->model == db->model);
+  size_t snapshot = NUM2ULONG(_snapshot);
+
+  for (size_t s = 0; s < snapshot; ++s)
+  {
+    memcpy(current->ptr(), db->get_minmax_element(2*s), current->model->size());
+    rb_yield(_current);
+    memcpy(current->ptr(), db->get_minmax_element(2*s+1), current->model->size());
+    rb_yield(_current);
+  }
+
+  return Qnil;
+}
+
+
+
+
 extern "C"
 void Init_RecordModelMMDBExt()
 {
@@ -1195,4 +1225,5 @@ void Init_RecordModelMMDBExt()
   rb_define_method(cMMDB, "query_aggregate", (VALUE (*)(...)) MMDB_query_aggregate, 7);
   rb_define_method(cMMDB, "commit", (VALUE (*)(...)) MMDB_commit, 0);
   rb_define_method(cMMDB, "get_snapshot_num", (VALUE (*)(...)) MMDB_get_snapshot_num, 0);
+  rb_define_method(cMMDB, "slices", (VALUE (*)(...)) MMDB_slices, 2);
 }

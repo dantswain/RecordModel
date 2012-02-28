@@ -43,6 +43,12 @@ module MMDB
       @snapshot
     end
 
+    def slices
+      arr = []
+      @db.slices(self.modelklass.new, @snapshot) {|i| arr << i.dup}
+      arr.each_slice(2).map {|a, b| a..b}
+    end
+
     def query(*queries)
       RecordModel::Query.new(self, self.modelklass, *queries)
     end
