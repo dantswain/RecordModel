@@ -18,6 +18,10 @@ module MMDB
       # XXX: Validate Schema
       #if File.exist?(File.join(@dirname, "schema"))
 
+      @lock = File.open(File.join(@dirname, "lock"), File::RDWR|File::CREAT, 0644)
+
+      raise "Database locked" if not @lock.flock(File::LOCK_EX|File::LOCK_NB)
+
       @commit_log = CommitLog.new(File.join(@dirname, "commit"))
 
       # parse the commit record
@@ -101,6 +105,9 @@ module MMDB
     def close
       @dbs.each_value {|db| db.close}
       @dbs = {}
+      @lock.flock(File::LOCK_UN)
+      @lock.close
+      @lock = nil
     end
 
     def get_db(dbid)
