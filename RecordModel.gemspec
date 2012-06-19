@@ -6,7 +6,7 @@ spec = Gem::Specification.new do |s|
   s.license = 'BSD License'
   s.files = ['README', 'RecordModel.gemspec',
              'include/RecordModel.h', 'include/RM_Types.h', 'include/RM_Token.h', 
-	     'include/LineReader.h', 
+	     'include/LineReader.h', 'include/MacEndian.h',
 	     'include/FileReader.h', 'include/FdFileReader.h',
 	     'include/PosixFileReader.h', 'include/GzipFileReader.h',
 	     'include/XzFileReader.h', 'include/AutoFileReader.h',

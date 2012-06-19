@@ -7,7 +7,11 @@
 #include <assert.h>  // assert
 #include <limits>    // std::numeric_limits
 #include <stdlib.h>  // atof
+#ifndef __APPLE__   
 #include <endian.h>  // htole64
+#else
+#include "MacEndian.h"
+#endif
 #include <math.h>    // pow
 #include "ruby.h"    // Ruby
 #include <ctype.h>   // isspace
