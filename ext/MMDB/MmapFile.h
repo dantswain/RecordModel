@@ -166,7 +166,11 @@ public:
     /*
      * Try first to remap without holding the write_lock
      */
+#ifndef __APPLE__    
     void *ptr = mremap(_ptr, _capa, new_capa, 0);
+#else  /* no mremap on OS X, so force munmap/mmap */
+    void *ptr = MAP_FAILED;
+#endif    
     if (ptr == MAP_FAILED)
     {
       /*
