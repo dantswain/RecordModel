@@ -363,9 +363,9 @@ public:
   // Query support
   // -----------------------------------------------
 
-  static const int ITER_CONTINUE = 0; 
-  static const int ITER_NEXT_SLICE = 1;
-  static const int ITER_STOP = 2;
+  static const int ITER_CONTINUE;
+  static const int ITER_NEXT_SLICE;
+  static const int ITER_STOP;
 
 private:
 
@@ -1208,6 +1208,10 @@ VALUE MMDB_slices(VALUE self, VALUE _current, VALUE _snapshot)
 
   return Qnil;
 }
+
+const int MMDB::ITER_CONTINUE = 0; 
+const int MMDB::ITER_NEXT_SLICE = 1;
+const int MMDB::ITER_STOP = 2;
 
 
 
